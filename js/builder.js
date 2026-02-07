@@ -394,6 +394,7 @@ function initProperties() {
   document.getElementById('prop-api-key').addEventListener('input', onPropertyChange);
   document.getElementById('prop-endpoint').addEventListener('input', onPropertyChange);
   document.getElementById('prop-refresh').addEventListener('change', onPropertyChange);
+  document.getElementById('prop-timeformat').addEventListener('change', onPropertyChange);
   
   // Show header checkbox
   document.getElementById('prop-show-header').addEventListener('change', onPropertyChange);
@@ -424,6 +425,7 @@ function showProperties(widget) {
   document.getElementById('prop-location-group').style.display = 'none';
   document.getElementById('prop-locations-group').style.display = 'none';
   document.getElementById('prop-units-group').style.display = 'none';
+  document.getElementById('prop-timeformat-group').style.display = 'none';
   
   // Show location field (single)
   if (widget.properties.location !== undefined) {
@@ -441,6 +443,12 @@ function showProperties(widget) {
   if (widget.properties.units !== undefined) {
     document.getElementById('prop-units-group').style.display = 'block';
     document.getElementById('prop-units').value = widget.properties.units || 'F';
+  }
+  
+  // Show time format field
+  if (widget.properties.format24h !== undefined) {
+    document.getElementById('prop-timeformat-group').style.display = 'block';
+    document.getElementById('prop-timeformat').value = widget.properties.format24h ? '24h' : '12h';
   }
   
   // Show API fields
@@ -510,6 +518,9 @@ function onPropertyChange(e) {
       break;
     case 'prop-units':
       widget.properties.units = e.target.value;
+      break;
+    case 'prop-timeformat':
+      widget.properties.format24h = e.target.value === '24h';
       break;
     case 'prop-endpoint':
       widget.properties.endpoint = e.target.value;
