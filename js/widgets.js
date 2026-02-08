@@ -60,8 +60,8 @@ const WIDGETS = {
           else if (code >= 368 && code <= 395) icon = '❄️';
           document.getElementById('${props.id}-icon').textContent = icon;
         } catch (e) {
-          console.error('Weather error:', e);
-          document.getElementById('${props.id}-value').textContent = 'N/A';
+          console.error('Weather widget error:', e);
+          document.getElementById('${props.id}-value').textContent = '—';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -174,7 +174,8 @@ const WIDGETS = {
           val.textContent = data.authMode === 'oauth' ? 'Subscription' : 'API';
           dot.className = 'kpi-indicator ' + (data.authMode === 'oauth' ? 'green' : 'yellow');
         } catch (e) {
-          document.getElementById('${props.id}-value').textContent = 'Error';
+          console.error('Auth status widget error:', e);
+          document.getElementById('${props.id}-value').textContent = '—';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -355,8 +356,9 @@ const WIDGETS = {
             statusEl.style.color = 'var(--accent-blue)';
           }
         } catch (e) {
-          versionEl.textContent = 'Error';
-          statusEl.textContent = 'Failed to check';
+          console.error('Release widget error:', e);
+          versionEl.textContent = '—';
+          statusEl.textContent = '—';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -456,7 +458,8 @@ const WIDGETS = {
           ).join('');
           badge.textContent = data.items.length + ' items';
         } catch (e) {
-          document.getElementById('${props.id}-list').innerHTML = '<div class="error">Failed to load</div>';
+          console.error('Activity list widget error:', e);
+          document.getElementById('${props.id}-list').innerHTML = '<div class="list-item">—</div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -507,7 +510,8 @@ const WIDGETS = {
           ).join('');
           badge.textContent = data.jobs.length + ' jobs';
         } catch (e) {
-          document.getElementById('${props.id}-list').innerHTML = '<div class="error">Failed to load</div>';
+          console.error('Cron jobs widget error:', e);
+          document.getElementById('${props.id}-list').innerHTML = '<div class="cron-item"><span class="cron-name">—</span></div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -563,7 +567,8 @@ const WIDGETS = {
           badge.textContent = data.lines.length + ' lines';
           log.scrollTop = log.scrollHeight;
         } catch (e) {
-          document.getElementById('${props.id}-log').innerHTML = '<div class="error">Failed to load</div>';
+          console.error('System log widget error:', e);
+          document.getElementById('${props.id}-log').innerHTML = '<div class="log-line">—</div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -720,7 +725,8 @@ const WIDGETS = {
           const headlines = data.articles.map(a => a.title).join(' ••• ');
           document.getElementById('${props.id}-ticker').textContent = headlines;
         } catch (e) {
-          document.getElementById('${props.id}-ticker').textContent = 'Failed to load news';
+          console.error('News ticker widget error:', e);
+          document.getElementById('${props.id}-ticker').textContent = '—';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -1310,7 +1316,8 @@ const WIDGETS = {
           }).join('');
           badge.textContent = (data.containers || []).length + ' containers';
         } catch (e) {
-          document.getElementById('${props.id}-list').innerHTML = '<div class="error">Failed to load</div>';
+          console.error('Docker containers widget error:', e);
+          document.getElementById('${props.id}-list').innerHTML = '<div class="docker-row">—</div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -1593,7 +1600,8 @@ const WIDGETS = {
             '<div class="gh-stat">👥 ' + data.followers + ' followers</div>' +
             '<div class="gh-stat">🔗 ' + data.following + ' following</div>';
         } catch (e) {
-          document.getElementById('${props.id}-stats').innerHTML = '<div class="error">Failed to load</div>';
+          console.error('GitHub stats widget error:', e);
+          document.getElementById('${props.id}-stats').innerHTML = '<div class="gh-stat">—</div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -2220,7 +2228,8 @@ const WIDGETS = {
           const headlines = (data.items || []).map(item => item.title).join(' ••• ');
           document.getElementById('${props.id}-ticker').textContent = headlines || 'No items found';
         } catch (e) {
-          document.getElementById('${props.id}-ticker').textContent = 'Failed to load RSS feed';
+          console.error('RSS ticker widget error:', e);
+          document.getElementById('${props.id}-ticker').textContent = '—';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -2271,7 +2280,8 @@ const WIDGETS = {
             '<a href="' + item.link + '" class="rss-item" target="_blank">' + item.title + '</a>'
           ).join('');
         } catch (e) {
-          document.getElementById('${props.id}-items').innerHTML = '<div class="error">Failed to load feed</div>';
+          console.error('RSS feed widget error:', e);
+          document.getElementById('${props.id}-items').innerHTML = '<div class="rss-item">—</div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();

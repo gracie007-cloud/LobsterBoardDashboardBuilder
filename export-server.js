@@ -20,8 +20,12 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
-// Configuration
+// ─────────────────────────────────────────────
+// CONFIGURATION
+// ─────────────────────────────────────────────
+
 const PORT = process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
 const OPENCLAW_URL = (process.env.OPENCLAW_URL || 'http://localhost:18789').replace(/\/$/, '');
@@ -51,9 +55,47 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-// Proxy request to OpenClaw
-async function proxyToOpenClaw(reqPath, res) {
+// ─────────────────────────────────────────────
+// LOGGING
+// ─────────────────────────────────────────────
+
+const LOG_FILE = path.join(__dirname, 'export-server.log');
+
+function log(level, message, data = null) {
+  const entry = `[${new Date().toISOString()}] [${level}] ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`;
+  console.log(entry.trim());
+  try {
+    fs.appendFileSync(LOG_FILE, entry);
+  } catch (e) {
+    // If we can't write to log file, just continue
+  }
+}
+
+// Generate request ID for tracing
+function generateRequestId() {
+  return crypto.randomBytes(4).toString('hex');
+}
+
+// ─────────────────────────────────────────────
+// RESPONSE HELPERS
+// ─────────────────────────────────────────────
+
+function sendError(res, message, statusCode = 500, requestId = null) {
+  res.writeHead(statusCode, { 
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    ...(requestId && { 'X-Request-Id': requestId })
+  });
+  res.end(JSON.stringify({ status: 'error', message }));
+}
+
+// ─────────────────────────────────────────────
+// PROXY
+// ─────────────────────────────────────────────
+
+async function proxyToOpenClaw(reqPath, res, requestId) {
   const url = OPENCLAW_URL + reqPath;
+  const startTime = Date.now();
   
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -63,20 +105,40 @@ async function proxyToOpenClaw(reqPath, res) {
     clearTimeout(timeout);
     const data = await response.text();
     
+    log('INFO', `PROXY ${reqPath}`, { 
+      requestId, 
+      targetUrl: url,
+      status: response.status,
+      responseTime: Date.now() - startTime 
+    });
+    
     res.writeHead(response.status, {
       'Content-Type': response.headers.get('content-type') || 'application/json',
-      'Access-Control-Allow-Origin': '*'
+      'Access-Control-Allow-Origin': '*',
+      'X-Request-Id': requestId
     });
     res.end(data);
   } catch (error) {
     clearTimeout(timeout);
-    res.writeHead(502, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Failed to reach OpenClaw', details: error.message }));
+    
+    // Log detailed error server-side
+    log('ERROR', `Proxy failed: ${reqPath}`, { 
+      requestId, 
+      targetUrl: url, 
+      error: error.message,
+      responseTime: Date.now() - startTime
+    });
+    
+    // Return generic message to client (don't leak internal details)
+    sendError(res, 'Failed to reach backend service', 502, requestId);
   }
 }
 
-// Serve static file
-function serveStatic(filePath, res) {
+// ─────────────────────────────────────────────
+// STATIC FILES
+// ─────────────────────────────────────────────
+
+function serveStatic(filePath, res, requestId) {
   // Default to index.html
   if (filePath === '/') filePath = '/index.html';
   
@@ -84,8 +146,8 @@ function serveStatic(filePath, res) {
   
   // Prevent path traversal attacks
   if (!fullPath.startsWith(path.resolve(__dirname))) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' });
-    res.end('Forbidden');
+    log('WARN', 'Path traversal attempt blocked', { requestId, path: filePath });
+    sendError(res, 'Forbidden', 403, requestId);
     return;
   }
   
@@ -98,6 +160,7 @@ function serveStatic(filePath, res) {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
       } else {
+        log('ERROR', 'Static file read error', { requestId, path: filePath, error: err.message });
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end('Server Error');
       }
@@ -109,8 +172,12 @@ function serveStatic(filePath, res) {
   });
 }
 
-// Create server
+// ─────────────────────────────────────────────
+// SERVER
+// ─────────────────────────────────────────────
+
 const server = http.createServer(async (req, res) => {
+  const requestId = generateRequestId();
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
   
@@ -119,29 +186,58 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'X-Request-Id': requestId
     });
     res.end();
     return;
   }
   
-  // Check if this is an allowed API proxy request
-  if (pathname.startsWith('/api/')) {
-    if (ALLOWED_API_PATHS.includes(pathname)) {
-      await proxyToOpenClaw(pathname, res);
-    } else {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'API endpoint not allowed' }));
+  try {
+    // Check if this is an allowed API proxy request
+    if (pathname.startsWith('/api/')) {
+      if (ALLOWED_API_PATHS.includes(pathname)) {
+        await proxyToOpenClaw(pathname, res, requestId);
+      } else {
+        log('WARN', 'Blocked API path', { requestId, path: pathname });
+        sendError(res, 'API endpoint not allowed', 403, requestId);
+      }
+      return;
     }
-    return;
+    
+    // Serve static files
+    serveStatic(pathname, res, requestId);
+  } catch (e) {
+    log('ERROR', 'Request handler error', { requestId, path: pathname, error: e.message, stack: e.stack });
+    sendError(res, 'Internal server error', 500, requestId);
   }
-  
-  // Serve static files
-  serveStatic(pathname, res);
+});
+
+// Handle server errors
+server.on('error', (err) => {
+  log('ERROR', 'Server error', { error: err.message, stack: err.stack });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  log('INFO', 'Received SIGTERM, shutting down...');
+  server.close(() => {
+    log('INFO', 'Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  log('INFO', 'Received SIGINT, shutting down...');
+  server.close(() => {
+    log('INFO', 'Server closed');
+    process.exit(0);
+  });
 });
 
 // Start server
 server.listen(PORT, HOST, () => {
+  log('INFO', 'Server started', { host: HOST, port: PORT, openclawUrl: OPENCLAW_URL });
   console.log(`
 🦞 LobsterBoard Dashboard Server
 

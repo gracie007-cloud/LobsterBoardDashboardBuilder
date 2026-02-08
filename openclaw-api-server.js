@@ -17,9 +17,35 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execSync, exec } = require('child_process');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
+
+// ─────────────────────────────────────────────
+// LOGGING
+// ─────────────────────────────────────────────
+
+const LOG_FILE = path.join(__dirname, 'server.log');
+
+function log(level, message, data = null) {
+  const entry = `[${new Date().toISOString()}] [${level}] ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`;
+  console.log(entry.trim());
+  try {
+    fs.appendFileSync(LOG_FILE, entry);
+  } catch (e) {
+    // If we can't write to log file, just continue
+  }
+}
+
+// Generate request ID for tracing
+function generateRequestId() {
+  return crypto.randomBytes(4).toString('hex');
+}
+
+// ─────────────────────────────────────────────
+// CONFIGURATION
+// ─────────────────────────────────────────────
 
 // MIME types
 const MIME_TYPES = {
@@ -33,6 +59,32 @@ let statusCache = { data: null, timestamp: 0 };
 let cronCache = { data: null, timestamp: 0 };
 const CACHE_TTL = 30000; // 30 seconds
 
+// ─────────────────────────────────────────────
+// RESPONSE HELPERS
+// ─────────────────────────────────────────────
+
+function sendSuccess(res, data, requestId) {
+  res.writeHead(200, { 
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'X-Request-Id': requestId
+  });
+  res.end(JSON.stringify({ status: 'ok', data }));
+}
+
+function sendError(res, message, statusCode = 500, requestId = null) {
+  res.writeHead(statusCode, { 
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    ...(requestId && { 'X-Request-Id': requestId })
+  });
+  res.end(JSON.stringify({ status: 'error', message }));
+}
+
+// ─────────────────────────────────────────────
+// OPENCLAW CLI
+// ─────────────────────────────────────────────
+
 // Run openclaw CLI command and return output
 function runOpenClawCmd(args) {
   try {
@@ -43,7 +95,7 @@ function runOpenClawCmd(args) {
     });
     return result;
   } catch (e) {
-    console.error(`openclaw ${args} failed:`, e.message);
+    log('ERROR', `openclaw ${args} failed`, { error: e.message });
     return null;
   }
 }
@@ -52,12 +104,14 @@ function runOpenClawCmd(args) {
 function parseStatus() {
   const now = Date.now();
   if (statusCache.data && (now - statusCache.timestamp) < CACHE_TTL) {
+    log('DEBUG', 'Status cache hit');
     return statusCache.data;
   }
 
+  log('DEBUG', 'Status cache miss, fetching...');
   const output = runOpenClawCmd('status');
   if (!output) {
-    return { error: 'Failed to get status' };
+    return null;
   }
 
   // Get current running version
@@ -114,9 +168,11 @@ function parseStatus() {
 function parseCronJobs() {
   const now = Date.now();
   if (cronCache.data && (now - cronCache.timestamp) < CACHE_TTL) {
+    log('DEBUG', 'Cron cache hit');
     return cronCache.data;
   }
 
+  log('DEBUG', 'Cron cache miss, fetching...');
   // Get cron jobs via CLI (correct command: openclaw cron list --json)
   const output = runOpenClawCmd('cron list --json');
   
@@ -128,7 +184,7 @@ function parseCronJobs() {
       jobs = parsed.jobs || [];
     }
   } catch (e) {
-    console.error('Failed to parse cron jobs:', e.message);
+    log('ERROR', 'Failed to parse cron jobs', { error: e.message });
   }
 
   const data = { jobs };
@@ -136,88 +192,117 @@ function parseCronJobs() {
   return data;
 }
 
-// API handlers
+// ─────────────────────────────────────────────
+// API HANDLERS
+// ─────────────────────────────────────────────
+
 const API_HANDLERS = {
-  '/api/status': (req, res) => {
-    const data = parseStatus();
-    res.writeHead(200, { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify(data));
-  },
-
-  '/api/cron': (req, res) => {
-    const data = parseCronJobs();
-    res.writeHead(200, { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify(data));
-  },
-
-  '/api/activity': (req, res) => {
-    // Placeholder - would need to query session history
-    res.writeHead(200, { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify({
-      items: [
-        { text: 'Activity feed coming soon', time: new Date().toISOString() }
-      ]
-    }));
-  },
-
-  '/api/logs': (req, res) => {
-    // Try to read recent logs
-    let lines = ['Log viewer coming soon'];
-    
-    // Try common log locations
-    const logPaths = [
-      path.join(process.env.HOME, '.config/openclaw/logs/gateway.log'),
-      path.join(process.env.HOME, 'Library/Logs/openclaw/gateway.log'),
-      '/var/log/openclaw/gateway.log'
-    ];
-
-    for (const logPath of logPaths) {
-      try {
-        if (fs.existsSync(logPath)) {
-          const content = fs.readFileSync(logPath, 'utf8');
-          lines = content.split('\n').slice(-100).filter(l => l.trim());
-          break;
-        }
-      } catch (e) {
-        // Continue to next path
+  '/api/status': (req, res, requestId) => {
+    const startTime = Date.now();
+    try {
+      const data = parseStatus();
+      if (!data) {
+        log('ERROR', 'Failed to get status', { requestId });
+        sendError(res, 'Failed to get OpenClaw status', 500, requestId);
+        return;
       }
+      log('INFO', 'GET /api/status', { requestId, responseTime: Date.now() - startTime });
+      sendSuccess(res, data, requestId);
+    } catch (e) {
+      log('ERROR', 'Status handler error', { requestId, error: e.message, stack: e.stack });
+      sendError(res, 'Internal server error', 500, requestId);
     }
-
-    res.writeHead(200, { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify({ lines }));
   },
 
-  '/api/sessions': (req, res) => {
-    const status = parseStatus();
-    res.writeHead(200, { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify({ count: status.sessions || 0 }));
+  '/api/cron': (req, res, requestId) => {
+    const startTime = Date.now();
+    try {
+      const data = parseCronJobs();
+      log('INFO', 'GET /api/cron', { requestId, responseTime: Date.now() - startTime });
+      sendSuccess(res, data, requestId);
+    } catch (e) {
+      log('ERROR', 'Cron handler error', { requestId, error: e.message, stack: e.stack });
+      sendError(res, 'Internal server error', 500, requestId);
+    }
+  },
+
+  '/api/activity': (req, res, requestId) => {
+    const startTime = Date.now();
+    try {
+      // Placeholder - would need to query session history
+      const data = {
+        items: [
+          { text: 'Activity feed coming soon', time: new Date().toISOString() }
+        ]
+      };
+      log('INFO', 'GET /api/activity', { requestId, responseTime: Date.now() - startTime });
+      sendSuccess(res, data, requestId);
+    } catch (e) {
+      log('ERROR', 'Activity handler error', { requestId, error: e.message, stack: e.stack });
+      sendError(res, 'Internal server error', 500, requestId);
+    }
+  },
+
+  '/api/logs': (req, res, requestId) => {
+    const startTime = Date.now();
+    try {
+      // Try to read recent logs
+      let lines = ['Log viewer coming soon'];
+      
+      // Try common log locations
+      const logPaths = [
+        path.join(process.env.HOME, '.config/openclaw/logs/gateway.log'),
+        path.join(process.env.HOME, 'Library/Logs/openclaw/gateway.log'),
+        '/var/log/openclaw/gateway.log'
+      ];
+
+      for (const logPath of logPaths) {
+        try {
+          if (fs.existsSync(logPath)) {
+            const content = fs.readFileSync(logPath, 'utf8');
+            lines = content.split('\n').slice(-100).filter(l => l.trim());
+            log('DEBUG', 'Found log file', { path: logPath });
+            break;
+          }
+        } catch (e) {
+          // Continue to next path
+        }
+      }
+
+      log('INFO', 'GET /api/logs', { requestId, responseTime: Date.now() - startTime, lineCount: lines.length });
+      sendSuccess(res, { lines }, requestId);
+    } catch (e) {
+      log('ERROR', 'Logs handler error', { requestId, error: e.message, stack: e.stack });
+      sendError(res, 'Internal server error', 500, requestId);
+    }
+  },
+
+  '/api/sessions': (req, res, requestId) => {
+    const startTime = Date.now();
+    try {
+      const status = parseStatus();
+      const count = status?.sessions || 0;
+      log('INFO', 'GET /api/sessions', { requestId, responseTime: Date.now() - startTime });
+      sendSuccess(res, { count }, requestId);
+    } catch (e) {
+      log('ERROR', 'Sessions handler error', { requestId, error: e.message, stack: e.stack });
+      sendError(res, 'Internal server error', 500, requestId);
+    }
   }
 };
 
-// Serve static files
-function serveStatic(filePath, res) {
+// ─────────────────────────────────────────────
+// STATIC FILE SERVER
+// ─────────────────────────────────────────────
+
+function serveStatic(filePath, res, requestId) {
   if (filePath === '/') filePath = '/index.html';
   const fullPath = path.resolve(__dirname, '.' + filePath);
   
   // Prevent path traversal attacks
   if (!fullPath.startsWith(path.resolve(__dirname))) {
-    res.writeHead(403);
-    res.end('Forbidden');
+    log('WARN', 'Path traversal attempt blocked', { requestId, path: filePath });
+    sendError(res, 'Forbidden', 403, requestId);
     return;
   }
   
@@ -225,8 +310,14 @@ function serveStatic(filePath, res) {
   
   fs.readFile(fullPath, (err, data) => {
     if (err) {
-      res.writeHead(err.code === 'ENOENT' ? 404 : 500);
-      res.end(err.code === 'ENOENT' ? 'Not Found' : 'Server Error');
+      if (err.code === 'ENOENT') {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+      } else {
+        log('ERROR', 'Static file error', { requestId, path: filePath, error: err.message });
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Server Error');
+      }
       return;
     }
     res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
@@ -234,8 +325,12 @@ function serveStatic(filePath, res) {
   });
 }
 
-// Create server
+// ─────────────────────────────────────────────
+// SERVER
+// ─────────────────────────────────────────────
+
 const server = http.createServer((req, res) => {
+  const requestId = generateRequestId();
   const pathname = new URL(req.url, 'http://' + req.headers.host).pathname;
   
   // CORS preflight
@@ -243,7 +338,8 @@ const server = http.createServer((req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'X-Request-Id': requestId
     });
     res.end();
     return;
@@ -251,15 +347,38 @@ const server = http.createServer((req, res) => {
   
   // API endpoints
   if (API_HANDLERS[pathname]) {
-    API_HANDLERS[pathname](req, res);
+    API_HANDLERS[pathname](req, res, requestId);
     return;
   }
   
   // Static files
-  serveStatic(pathname, res);
+  serveStatic(pathname, res, requestId);
+});
+
+// Handle server errors
+server.on('error', (err) => {
+  log('ERROR', 'Server error', { error: err.message, stack: err.stack });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  log('INFO', 'Received SIGTERM, shutting down...');
+  server.close(() => {
+    log('INFO', 'Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  log('INFO', 'Received SIGINT, shutting down...');
+  server.close(() => {
+    log('INFO', 'Server closed');
+    process.exit(0);
+  });
 });
 
 server.listen(PORT, HOST, () => {
+  log('INFO', 'Server started', { host: HOST, port: PORT });
   console.log(`
 🦞 LobsterBoard OpenClaw API Server
 
