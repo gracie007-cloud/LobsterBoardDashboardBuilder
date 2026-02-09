@@ -455,6 +455,9 @@ function renderWidget(widget) {
   const el = document.createElement('div');
   el.className = 'placed-widget';
   el.dataset.type = widget.type;
+  if (widget.type === 'text-header') {
+    el.dataset.showBorder = widget.properties.showBorder ? 'true' : 'false';
+  }
   el.id = widget.id;
   el.style.left = widget.x + 'px';
   el.style.top = widget.y + 'px';
@@ -514,6 +517,10 @@ function renderWidgetPreview(widget) {
   const template = WIDGETS[widget.type];
   const el = document.getElementById(widget.id);
   if (!el) return;
+
+  if (widget.type === 'text-header') {
+    el.dataset.showBorder = widget.properties.showBorder ? 'true' : 'false';
+  }
 
   const props = { ...widget.properties, id: 'preview-' + widget.id };
   const widgetContent = processWidgetHtml(template.generateHtml(props), widget.properties.showHeader);
@@ -1068,6 +1075,8 @@ function onPropertyChange(e) {
       break;
     case 'prop-showborder':
       widget.properties.showBorder = e.target.checked;
+      const el = document.getElementById(widget.id);
+      if (el) el.dataset.showBorder = e.target.checked ? 'true' : 'false';
       renderWidgetPreview(widget);
       break;
     case 'prop-location':

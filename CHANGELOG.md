@@ -4,6 +4,13 @@ All notable changes to LobsterBoard will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Text-header widget "Show Border" checkbox now works — toggling it off removes the card background, border, and box-shadow from the `.placed-widget` container
+
+---
+
 ## [0.1.0] - 2026-02-05
 
 ### 🎉 Initial Release

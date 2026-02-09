@@ -1110,3 +1110,16 @@ body[data-mode="edit"] .edit-layout-btn {
   margin: 0 !important;
   overflow: visible !important;
 }
+
+/* Text-header widgets: hide card chrome when showBorder is false */
+.placed-widget[data-type="text-header"][data-show-border="false"] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.placed-widget[data-type="text-header"][data-show-border="false"] .widget-render {
+  padding: 0 !important;
+  margin: 0 !important;
+}
