@@ -40,9 +40,17 @@
       "import": "./src/builder.js"
     }
   },
+  "bin": {
+    "lobsterboard": "./bin/lobsterboard.mjs"
+  },
   "files": [
+    "server.cjs",
+    "index.html",
+    "js/",
+    "css/",
     "dist",
     "src",
+    "bin/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
