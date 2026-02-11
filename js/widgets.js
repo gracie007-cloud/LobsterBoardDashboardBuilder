@@ -550,8 +550,7 @@ const WIDGETS = {
     description: 'Lists scheduled cron jobs from OpenClaw /api/cron endpoint.',
     defaultWidth: 400,
     defaultHeight: 250,
-    hasApiKey: true,
-    apiKeyName: 'OPENCLAW_API',
+    hasApiKey: false,
     properties: {
       title: 'Cron',
       endpoint: '/api/cron',
