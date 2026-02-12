@@ -88,10 +88,7 @@ For users running [OpenClaw](https://github.com/openclaw/openclaw).
 
 | Widget | Description |
 |--------|-------------|
-| 🟣 Claude Usage | Anthropic API token/cost tracking |
-| 🟢 GPT Usage | OpenAI API token/cost tracking |
-| 🔵 Gemini Usage | Google API token/cost tracking |
-| 🤖 AI Usage (All) | Combined multi-provider view |
+| 🟣 Claude Usage | Anthropic API token/cost tracking (today/week/month) |
 | 💰 AI Cost Tracker | Total AI spending across providers |
 
 ### ⏰ Time & Productivity
