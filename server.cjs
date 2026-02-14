@@ -349,7 +349,7 @@ function parseIcal(text, maxEvents) {
   return events.slice(0, maxEvents);
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
   const pathname = parsedUrl.pathname;
 
@@ -449,7 +449,7 @@ const server = http.createServer((req, res) => {
       // Parse body for non-GET requests
       if (req.method === 'GET') {
         try {
-          const result = pageMatch.handler(req, res, { query: pageMatch.query, body: {}, params: pageMatch.params });
+          const result = await pageMatch.handler(req, res, { query: pageMatch.query, body: {}, params: pageMatch.params });
           if (result !== undefined && !res.writableEnded) sendJson(res, res.statusCode || 200, result);
         } catch (e) { sendError(res, e.message); }
         return;
@@ -459,12 +459,12 @@ const server = http.createServer((req, res) => {
       let body = '';
       let overflow = false;
       req.on('data', chunk => { body += chunk.toString(); if (body.length > MAX_BODY) { overflow = true; req.destroy(); } });
-      req.on('end', () => {
+      req.on('end', async () => {
         if (overflow) { sendError(res, 'Request body too large', 413); return; }
         let parsed = {};
         try { if (body) parsed = JSON.parse(body); } catch (_) {}
         try {
-          const result = pageMatch.handler(req, res, { query: pageMatch.query, body: parsed, params: pageMatch.params });
+          const result = await pageMatch.handler(req, res, { query: pageMatch.query, body: parsed, params: pageMatch.params });
           if (result !== undefined && !res.writableEnded) sendJson(res, res.statusCode || 200, result);
         } catch (e) { sendError(res, e.message); }
       });
