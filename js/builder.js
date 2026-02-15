@@ -143,7 +143,7 @@ function executeWidgetScripts() {
   state.widgets.forEach(widget => {
     const template = WIDGETS[widget.type];
     if (!template || !template.generateJs) return;
-    const props = { ...widget.properties, id: 'preview-' + widget.id };
+    const props = sanitizeProps({ ...widget.properties, id: 'preview-' + widget.id });
     try {
       const js = template.generateJs(props);
       new Function(js)();
@@ -2436,12 +2436,22 @@ function generateEditJs() {
 `;
 }
 
+function sanitizeProps(props) {
+  const safe = { ...props };
+  for (const key of Object.keys(safe)) {
+    if (typeof safe[key] === 'string') {
+      safe[key] = safe[key].replace(/[`$\\]/g, '\\$&').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+  }
+  return safe;
+}
+
 function generateDashboardJs() {
   const widgetJs = state.widgets.map(widget => {
     const template = WIDGETS[widget.type];
     if (!template || !template.generateJs) return '';
 
-    const props = { ...widget.properties, id: widget.id };
+    const props = sanitizeProps({ ...widget.properties, id: widget.id });
     return template.generateJs(props);
   }).join('\n\n');
 
