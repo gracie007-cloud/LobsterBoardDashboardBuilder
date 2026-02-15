@@ -27,6 +27,8 @@ node server.cjs
 
 Open **http://localhost:8080** → press **Ctrl+E** to enter edit mode → drag widgets from the sidebar → click **💾 Save**.
 
+![Edit Mode](lobsterboard-editor.jpg)
+
 ## Features
 
 - **Drag-and-drop editor** — visual layout with 20px snap grid, resize handles, property panel
@@ -49,7 +51,11 @@ Widget settings are edited in the right-hand panel during edit mode. All configu
 
 ## Template Gallery
 
+![Template Gallery](lobsterboard-templates.jpg)
+
 LobsterBoard includes a built-in template system for sharing and reusing dashboard layouts.
+
+![Template Import](lobsterboard-template-detail.jpg)
 
 - **Export** your current dashboard as a template (auto-captures a screenshot preview)
 - **Browse** the template gallery to discover pre-built layouts
@@ -57,6 +63,8 @@ LobsterBoard includes a built-in template system for sharing and reusing dashboa
   - **Replace** — swap your entire dashboard for the template
   - **Merge** — append the template's widgets below your existing layout
 - Templates are stored in the `templates/` directory and can be shared as folders
+
+![Dashboard Example](lobsterboard-dashboard-2.jpg)
 
 ## Widgets
 
