@@ -294,6 +294,103 @@
     <h1>Changelog</h1>
     <p class="subtitle">All notable changes to LobsterBoard will be documented here.</p>
 
+    <!-- Version 0.2.3 -->
+    <article class="version">
+      <div class="version-header">
+        <span class="version-number">v0.2.3</span>
+        <span class="version-date">February 16, 2026</span>
+        <span class="version-tag">Security</span>
+      </div>
+      <div class="version-body">
+        <h3>🔐 Security & Privacy</h3>
+        <ul>
+          <li><strong>PIN-locked edit mode</strong> — set a 4-6 digit PIN to prevent unauthorized editing (SHA-256 hashed, server-side only)</li>
+          <li><strong>Server-side secrets store</strong> — API keys, calendar URLs, and tokens stored securely, never sent to browser</li>
+          <li><strong>Public Mode</strong> — hides edit button and blocks config APIs; subtle 🔒 unlock button for admin access</li>
+          <li><strong>Privacy warnings</strong> on sensitive widgets (System Log, Activity List, Cron Jobs, Calendar, Todo List)</li>
+          <li>Template export now strips private calendar URLs with auth tokens</li>
+          <li>Pre-commit hook blocks private data in template files</li>
+        </ul>
+        <h3>👥 Community</h3>
+        <ul>
+          <li><strong>Community Widgets</strong> — contribution guide, widget templates, and PR checklist for submissions</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- Version 0.2.2 -->
+    <article class="version">
+      <div class="version-header">
+        <span class="version-number">v0.2.2</span>
+        <span class="version-date">February 16, 2026</span>
+      </div>
+      <div class="version-body">
+        <h3>🐛 Fixes</h3>
+        <ul>
+          <li>Removed private calendar URL accidentally included in template config</li>
+          <li>Fixed template export sanitization for URLs with embedded auth tokens</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- Version 0.2.1 -->
+    <article class="version">
+      <div class="version-header">
+        <span class="version-number">v0.2.1</span>
+        <span class="version-date">February 15, 2026</span>
+      </div>
+      <div class="version-body">
+        <h3>🐛 Fixes</h3>
+        <ul>
+          <li>Minor bug fixes and stability improvements</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- Version 0.2.0 -->
+    <article class="version">
+      <div class="version-header">
+        <span class="version-number">v0.2.0</span>
+        <span class="version-date">February 15, 2026</span>
+        <span class="version-tag">Major</span>
+      </div>
+      <div class="version-body">
+        <h3>✨ New Features</h3>
+        <ul>
+          <li><strong>Template Gallery</strong> — export, import, and share dashboard layouts with auto-screenshot previews</li>
+          <li><strong>Notes widget</strong> — persistent rich-text notes with auto-save</li>
+          <li><strong>GitHub Stats widget</strong> — profile contributions, stars, and activity</li>
+          <li><strong>LobsterBoard Release widget</strong> — version update checker</li>
+          <li><strong>SSE streaming</strong> for real-time system stats</li>
+          <li><strong>Directory browser</strong> for image widgets</li>
+          <li>Scrollable canvas mode</li>
+          <li>html2canvas dashboard screenshot export</li>
+          <li>Widget count: 47 → 50</li>
+        </ul>
+        <h3>🔄 Changed</h3>
+        <ul>
+          <li>License changed from MIT to BSL-1.1</li>
+          <li>Stock Ticker widget — fixed hasApiKey check</li>
+          <li>Builder — contenteditable keyboard fix, null-checks throughout</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- Version 0.1.6 -->
+    <article class="version">
+      <div class="version-header">
+        <span class="version-number">v0.1.6</span>
+        <span class="version-date">February 14, 2026</span>
+      </div>
+      <div class="version-body">
+        <h3>🚀 Initial npm Release</h3>
+        <ul>
+          <li>47 widgets, drag-and-drop editor, custom pages system</li>
+          <li>SSRF protection for proxy endpoints</li>
+        </ul>
+      </div>
+    </article>
+
     <!-- Version 0.1.1 -->
     <article class="version">
       <div class="version-header">

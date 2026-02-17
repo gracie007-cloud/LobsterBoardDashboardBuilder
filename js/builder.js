@@ -27,7 +27,10 @@ const state = {
   draggedWidget: null,
   idCounter: 0,
   fontScale: 1,
-  editMode: false // New: Track edit mode state
+  editMode: false, // New: Track edit mode state
+  pinVerified: false, // Track if PIN has been verified this session
+  hasPin: false, // Whether a PIN is configured
+  publicMode: false // Whether public mode is enabled
 };
 
 // ─────────────────────────────────────────────
@@ -52,6 +55,218 @@ function getScrollableCanvasHeight() {
 // ─────────────────────────────────────────────
 // EDIT MODE
 // ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// PIN & PUBLIC MODE
+// ─────────────────────────────────────────────
+
+function addPublicUnlockButton() {
+  let unlock = document.getElementById('public-unlock');
+  if (unlock) return; // already exists
+  unlock = document.createElement('button');
+  unlock.id = 'public-unlock';
+  unlock.textContent = '🔒';
+  unlock.title = 'Admin';
+  unlock.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:9999;background:transparent;border:none;color:#6e7681;font-size:12px;cursor:pointer;opacity:0.3;transition:opacity .2s;padding:4px;';
+  unlock.addEventListener('mouseenter', () => unlock.style.opacity = '0.8');
+  unlock.addEventListener('mouseleave', () => unlock.style.opacity = '0.3');
+  unlock.addEventListener('click', () => {
+    if (state.hasPin) {
+      showPinModal('verify');
+    } else {
+      openSecurityModal();
+    }
+  });
+  document.body.appendChild(unlock);
+}
+
+async function checkAuthStatus() {
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    state.hasPin = data.hasPin;
+    state.publicMode = data.publicMode;
+    if (state.publicMode) {
+      const editBtn = document.getElementById('btn-edit-layout');
+      if (editBtn) editBtn.style.display = 'none';
+      addPublicUnlockButton();
+    }
+  } catch (e) { console.error('Auth status check failed:', e); }
+}
+
+function showPinModal(mode) {
+  // mode: 'verify', 'set', 'change', 'remove'
+  const modal = document.getElementById('pin-modal');
+  const title = document.getElementById('pin-modal-title');
+  const input = document.getElementById('pin-input');
+  const input2 = document.getElementById('pin-input-confirm');
+  const currentInput = document.getElementById('pin-input-current');
+  const error = document.getElementById('pin-error');
+  const confirmGroup = document.getElementById('pin-confirm-group');
+  const currentGroup = document.getElementById('pin-current-group');
+
+  error.textContent = '';
+  input.value = '';
+  input2.value = '';
+  currentInput.value = '';
+
+  if (mode === 'verify') {
+    title.textContent = '🔒 Enter PIN to Edit';
+    confirmGroup.style.display = 'none';
+    currentGroup.style.display = 'none';
+  } else if (mode === 'set') {
+    title.textContent = '🔐 Set Edit PIN';
+    confirmGroup.style.display = 'block';
+    currentGroup.style.display = 'none';
+  } else if (mode === 'change') {
+    title.textContent = '🔄 Change PIN';
+    confirmGroup.style.display = 'block';
+    currentGroup.style.display = 'block';
+  } else if (mode === 'remove') {
+    title.textContent = '🗑️ Remove PIN';
+    confirmGroup.style.display = 'none';
+    currentGroup.style.display = 'block';
+    input.parentElement.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+  modal.dataset.mode = mode;
+  setTimeout(() => (mode === 'change' || mode === 'remove' ? currentInput : input).focus(), 100);
+}
+
+function closePinModal() {
+  const modal = document.getElementById('pin-modal');
+  modal.style.display = 'none';
+  // Restore visibility of new PIN input
+  document.getElementById('pin-input').parentElement.style.display = '';
+  // Clear any pending public mode callback
+  if (state._publicModeCallback) {
+    state._publicModeCallback = null;
+    const toggle = document.getElementById('public-mode-toggle');
+    if (toggle) toggle.checked = state.publicMode;
+  }
+}
+
+async function submitPin() {
+  const modal = document.getElementById('pin-modal');
+  const mode = modal.dataset.mode;
+  const pin = document.getElementById('pin-input').value;
+  const pin2 = document.getElementById('pin-input-confirm').value;
+  const currentPin = document.getElementById('pin-input-current').value;
+  const error = document.getElementById('pin-error');
+  error.textContent = '';
+
+  if (mode === 'verify') {
+    const res = await fetch('/api/auth/verify-pin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const data = await res.json();
+    if (data.valid) {
+      state.pinVerified = true;
+      // If there's a pending public mode toggle, handle that instead of entering edit mode
+      if (state._publicModeCallback) {
+        const callback = state._publicModeCallback;
+        state._publicModeCallback = null; // clear before closePinModal tries to
+        closePinModal();
+        await callback(pin);
+        return;
+      }
+      // If in public mode (unlock button clicked), disable it and restore edit UI
+      if (state.publicMode) {
+        state.publicMode = false;
+        await fetch('/api/mode', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicMode: false, pin })
+        });
+        const editBtn = document.getElementById('btn-edit-layout');
+        if (editBtn) editBtn.style.display = '';
+        const unlock = document.getElementById('public-unlock');
+        if (unlock) unlock.remove();
+        const pubToggle = document.getElementById('public-mode-toggle');
+        if (pubToggle) pubToggle.checked = false;
+      }
+      closePinModal();
+      setEditMode(true);
+    } else {
+      error.textContent = 'Incorrect PIN';
+    }
+  } else if (mode === 'set') {
+    if (pin !== pin2) { error.textContent = 'PINs do not match'; return; }
+    if (pin.length < 4 || pin.length > 6 || !/^\d+$/.test(pin)) { error.textContent = 'PIN must be 4-6 digits'; return; }
+    const res = await fetch('/api/auth/set-pin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      state.hasPin = true;
+      state.pinVerified = true;
+      closePinModal();
+      setEditMode(true);
+    } else { error.textContent = data.error || 'Failed to set PIN'; }
+  } else if (mode === 'change') {
+    if (pin !== pin2) { error.textContent = 'New PINs do not match'; return; }
+    if (pin.length < 4 || pin.length > 6 || !/^\d+$/.test(pin)) { error.textContent = 'PIN must be 4-6 digits'; return; }
+    const res = await fetch('/api/auth/set-pin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, currentPin })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      closePinModal();
+      alert('PIN changed successfully');
+    } else { error.textContent = data.error || 'Failed to change PIN'; }
+  } else if (mode === 'remove') {
+    const res = await fetch('/api/auth/remove-pin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: currentPin })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      state.hasPin = false;
+      closePinModal();
+      alert('PIN removed');
+    } else { error.textContent = data.error || 'Failed to remove PIN'; }
+  }
+}
+
+async function requestEditMode() {
+  if (state.publicMode) { alert('Dashboard is in public mode. Editing is disabled.'); return; }
+  if (state.hasPin && !state.pinVerified) {
+    showPinModal('verify');
+  } else if (!state.hasPin) {
+    // No PIN set — offer to set one, or go straight to edit
+    setEditMode(true);
+  } else {
+    setEditMode(true);
+  }
+}
+
+function openSecurityModal() {
+  const modal = document.getElementById('security-modal');
+  const pinStatus = document.getElementById('pin-status');
+  const setBtn = document.getElementById('sec-set-pin');
+  const changeBtn = document.getElementById('sec-change-pin');
+  const removeBtn = document.getElementById('sec-remove-pin');
+  const publicToggle = document.getElementById('public-mode-toggle');
+
+  if (state.hasPin) {
+    pinStatus.textContent = 'Active';
+    pinStatus.className = 'security-badge active';
+    setBtn.style.display = 'none';
+    changeBtn.style.display = '';
+    removeBtn.style.display = '';
+  } else {
+    pinStatus.textContent = 'Not Set';
+    pinStatus.className = 'security-badge';
+    setBtn.style.display = '';
+    changeBtn.style.display = 'none';
+    removeBtn.style.display = 'none';
+  }
+  publicToggle.checked = state.publicMode;
+  modal.style.display = 'flex';
+}
 
 function setEditMode(enable) {
   state.editMode = enable;
@@ -79,7 +294,7 @@ function setEditMode(enable) {
     document.querySelector('.canvas-grid').style.display = 'block'; // Show grid
     document.querySelector('.drop-hint').style.display = 'flex'; // Show drop hint
   } else {
-    editLayoutBtn.style.display = 'block';
+    editLayoutBtn.style.display = state.publicMode ? 'none' : 'block';
     saveBtn.textContent = '📦 Export ZIP';
     saveBtn.removeEventListener('click', saveConfig);
     saveBtn.addEventListener('click', exportDashboard);
@@ -326,10 +541,88 @@ document.addEventListener('DOMContentLoaded', () => {
   // setEditMode(false) is called inside loadConfig()
 
   // Initialize Edit Layout button
-  document.getElementById('btn-edit-layout').addEventListener('click', () => setEditMode(true));
+  document.getElementById('btn-edit-layout').addEventListener('click', requestEditMode);
   document.getElementById('btn-done-editing').addEventListener('click', () => {
     saveConfig();
     setEditMode(false);
+  });
+
+  // PIN modal buttons
+  document.getElementById('pin-submit').addEventListener('click', submitPin);
+  document.getElementById('pin-cancel').addEventListener('click', closePinModal);
+  document.getElementById('pin-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
+  document.getElementById('pin-input-confirm').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
+  document.getElementById('pin-input-current').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
+
+  // Check auth status on load
+  checkAuthStatus();
+
+  // Security modal
+  document.getElementById('btn-security').addEventListener('click', openSecurityModal);
+  document.getElementById('sec-close').addEventListener('click', () => {
+    document.getElementById('security-modal').style.display = 'none';
+  });
+  document.getElementById('sec-set-pin').addEventListener('click', () => {
+    document.getElementById('security-modal').style.display = 'none';
+    showPinModal('set');
+  });
+  document.getElementById('sec-change-pin').addEventListener('click', () => {
+    document.getElementById('security-modal').style.display = 'none';
+    showPinModal('change');
+  });
+  document.getElementById('sec-remove-pin').addEventListener('click', () => {
+    document.getElementById('security-modal').style.display = 'none';
+    showPinModal('remove');
+  });
+  document.getElementById('public-mode-toggle').addEventListener('change', async (e) => {
+    const enable = e.target.checked;
+    if (enable && !confirm('Enable Public Mode? This will hide the Edit button and block config APIs.')) {
+      e.target.checked = false; return;
+    }
+    if (state.hasPin) {
+      // Use PIN modal instead of prompt() so input is masked
+      state._pendingPublicMode = enable;
+      document.getElementById('security-modal').style.display = 'none';
+      showPinModal('verify');
+      // Override the verify handler temporarily
+      state._publicModeCallback = async (pin) => {
+        const res = await fetch('/api/mode', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicMode: enable, pin })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          state.publicMode = data.publicMode;
+          state._publicModeCallback = null;
+          // Reload page for clean state
+          location.reload();
+          return;
+        } else {
+          e.target.checked = !enable;
+          alert(data.error || 'Failed to change mode');
+        }
+        state._publicModeCallback = null;
+      };
+    } else {
+      const res = await fetch('/api/mode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicMode: enable })
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        state.publicMode = data.publicMode;
+        if (data.publicMode) {
+          setEditMode(false);
+          document.getElementById('btn-edit-layout').style.display = 'none';
+          document.getElementById('security-modal').style.display = 'none';
+        } else {
+          document.getElementById('btn-edit-layout').style.display = '';
+        }
+      } else {
+        e.target.checked = !enable;
+        alert(data.error || 'Failed to change mode');
+      }
+    }
   });
 });
 
@@ -420,10 +713,23 @@ function updateCanvasInfo() {
 function initDragDrop() {
   const canvas = document.getElementById('canvas');
 
-  // Widget library items
+  // Widget library items — add privacy badges
   document.querySelectorAll('.widget-item').forEach(item => {
     item.addEventListener('dragstart', onDragStart);
     item.addEventListener('dragend', onDragEnd);
+    const widgetType = item.dataset.widget;
+    const widgetDef = WIDGETS[widgetType];
+    if (widgetDef && widgetDef.privacyWarning) {
+      const nameEl = item.querySelector('.widget-name');
+      if (nameEl && !nameEl.querySelector('.privacy-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'privacy-badge';
+        badge.textContent = ' ⚠️';
+        badge.title = 'May expose sensitive data when dashboard is public';
+        badge.style.cssText = 'font-size:10px;cursor:help;';
+        nameEl.appendChild(badge);
+      }
+    }
   });
 
   // Canvas drop zone
@@ -1088,6 +1394,22 @@ function showProperties(widget) {
   } else {
     document.getElementById('prop-description-group').style.display = 'none';
   }
+
+  // Show privacy warning for sensitive widgets
+  let privWarn = document.getElementById('prop-privacy-warning');
+  if (!privWarn) {
+    privWarn = document.createElement('div');
+    privWarn.id = 'prop-privacy-warning';
+    privWarn.style.cssText = 'background:#2d1b00;border:1px solid #d29922;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:11px;color:#d29922;display:none;line-height:1.4;';
+    const descGroup = document.getElementById('prop-description-group');
+    descGroup.parentNode.insertBefore(privWarn, descGroup.nextSibling);
+  }
+  if (template.privacyWarning) {
+    privWarn.innerHTML = '⚠️ <strong>Privacy Warning:</strong> This widget may display sensitive data (API keys, credentials, personal info) to anyone viewing your dashboard. Public Mode and PIN protection only prevent editing — they do <strong>not</strong> hide widget content.';
+    privWarn.style.display = 'block';
+  } else {
+    privWarn.style.display = 'none';
+  }
 }
 
 // Properties already handled by hardcoded UI groups
@@ -1579,7 +1901,7 @@ function initControls() {
   });
 
   // Edit layout button
-  document.getElementById('btn-edit-layout').addEventListener('click', () => setEditMode(true));
+  document.getElementById('btn-edit-layout').addEventListener('click', requestEditMode);
 
   // Zoom controls - handled via inline onclick in HTML
 
@@ -1590,7 +1912,7 @@ function initControls() {
 
     if (e.ctrlKey && e.key === 'e') { // Ctrl+E to toggle edit mode
       e.preventDefault();
-      setEditMode(!state.editMode);
+      if (state.editMode) setEditMode(false); else requestEditMode();
     } else if (e.key === '=' || e.key === '+') {
       e.preventDefault();
       zoomIn();

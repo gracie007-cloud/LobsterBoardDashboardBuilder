@@ -1,6 +1,36 @@
 # Changelog
 
-## [0.2.0] - 2025-02-15
+## [0.2.3] - 2026-02-16
+
+### Added
+- **PIN-locked edit mode** — set a 4-6 digit PIN to prevent unauthorized editing (SHA-256 hashed, server-side only)
+- **Server-side secrets store** — API keys, calendar URLs, and tokens stored in `secrets.json`, never sent to browser
+- **Public Mode** — hides edit button and blocks config APIs; subtle 🔒 unlock button for admin access
+- **Privacy warnings** on sensitive widgets (System Log, Activity List, Cron Jobs, Calendar, Todo List) — ⚠️ badge in widget panel + orange warning in properties panel
+- **Community Widgets** — contribution guide, templates, and PR checklist for community widget submissions
+
+### Fixed
+- Private calendar URLs (Google Calendar, iCloud CalDAV) no longer leak in template exports
+- Template export `stripSensitive()` now detects URLs with auth tokens
+- Public mode toggle uses masked PIN modal instead of plain-text `prompt()`
+- `closePinModal()` no longer kills pending callbacks
+
+### Security
+- `auth.json` and `secrets.json` added to `.gitignore`
+- Pre-commit hook blocks private data patterns in template files
+
+## [0.2.2] - 2026-02-16
+
+### Fixed
+- Removed private Google Calendar URL accidentally included in template config
+- Fixed `stripSensitive()` to detect and blank URLs with embedded auth tokens
+
+## [0.2.1] - 2026-02-15
+
+### Fixed
+- Minor bug fixes and stability improvements
+
+## [0.2.0] - 2026-02-15
 
 ### Added
 - **Template Gallery** — export, import, and share dashboard layouts with auto-screenshot previews

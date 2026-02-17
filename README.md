@@ -275,6 +275,13 @@ lobsterboard/
 └── package.json
 ```
 
+## Community Widgets
+
+Community contributions are welcome! Build your own widget and share it with the LobsterBoard community.
+
+- 📖 **[Contributing Guide](CONTRIBUTING.md)** — how to create and submit a widget
+- 📁 **[Community Widgets](community-widgets/)** — browse contributed widgets and the starter template
+
 ## License
 
 This project is licensed under the **Business Source License 1.1 (BSL-1.1)**.

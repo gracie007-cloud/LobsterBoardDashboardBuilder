@@ -1,0 +1,30 @@
+#!/bin/bash
+# Pre-commit hook: block private data in template configs
+# Install: cp pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+PATTERNS=(
+  'private-[a-f0-9]{6}'
+  'caldav\.icloud\.com'
+  'calendar\.google\.com/calendar/ical/.*private'
+  '@gmail\.com'
+  '@allinialglobal\.com'
+  'sk-ant-'
+)
+
+FAILED=0
+for f in $(git diff --cached --name-only -- 'templates/' 2>/dev/null); do
+  [ -f "$f" ] || continue
+  for pat in "${PATTERNS[@]}"; do
+    if git show ":$f" 2>/dev/null | grep -qiE "$pat"; then
+      echo "❌ Private data detected in $f (pattern: $pat)"
+      FAILED=1
+    fi
+  done
+done
+
+if [ $FAILED -ne 0 ]; then
+  echo ""
+  echo "⚠️  Commit blocked: template files contain private data."
+  echo "   Strip sensitive URLs/emails before committing."
+  exit 1
+fi

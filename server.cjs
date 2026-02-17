@@ -294,6 +294,82 @@ const MIME_TYPES = {
 };
 
 const CONFIG_FILE = path.join(__dirname, 'config.json');
+const AUTH_FILE = path.join(__dirname, 'auth.json');
+const SECRETS_FILE = path.join(__dirname, 'secrets.json');
+
+// ─────────────────────────────────────────────
+// Security helpers
+// ─────────────────────────────────────────────
+const crypto = require('crypto');
+
+function hashPin(pin) {
+  return crypto.createHash('sha256').update(pin).digest('hex');
+}
+
+function readJsonFile(filepath, fallback) {
+  try { return JSON.parse(fs.readFileSync(filepath, 'utf8')); } catch (_) { return fallback; }
+}
+
+function writeJsonFile(filepath, data) {
+  fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
+}
+
+function getAuth() { return readJsonFile(AUTH_FILE, {}); }
+function getSecrets() { return readJsonFile(SECRETS_FILE, {}); }
+
+const SENSITIVE_KEYS = ['apiKey', 'api_key', 'token', 'secret', 'password', 'icalUrl'];
+
+function isSensitiveKey(key) {
+  return SENSITIVE_KEYS.includes(key);
+}
+
+function isPublicMode() {
+  const auth = getAuth();
+  return auth.publicMode === true;
+}
+
+/** Mask sensitive fields in config before sending to browser */
+function maskConfig(config) {
+  const secrets = getSecrets();
+  const masked = JSON.parse(JSON.stringify(config));
+  if (masked.widgets) {
+    masked.widgets.forEach(w => {
+      if (!w.properties) return;
+      const widgetSecrets = secrets[w.id] || {};
+      for (const key of Object.keys(w.properties)) {
+        if (isSensitiveKey(key) && (w.properties[key] === '__SECRET__' || widgetSecrets[key])) {
+          w.properties[key] = '••••••••';
+        }
+      }
+    });
+  }
+  return masked;
+}
+
+/** On save: extract sensitive values into secrets.json, replace with __SECRET__ in config */
+function extractSecrets(config) {
+  const secrets = getSecrets();
+  if (config.widgets) {
+    config.widgets.forEach(w => {
+      if (!w.properties) return;
+      for (const key of Object.keys(w.properties)) {
+        if (isSensitiveKey(key)) {
+          const val = w.properties[key];
+          if (val && val !== '__SECRET__' && val !== '••••••••') {
+            if (!secrets[w.id]) secrets[w.id] = {};
+            secrets[w.id][key] = val;
+            w.properties[key] = '__SECRET__';
+          } else if (val === '••••••••') {
+            // User didn't change it — keep existing secret, restore placeholder
+            w.properties[key] = '__SECRET__';
+          }
+        }
+      }
+    });
+  }
+  writeJsonFile(SECRETS_FILE, secrets);
+  return config;
+}
 
 // Scan templates directory for meta.json files
 function scanTemplates(templatesDir) {
@@ -399,7 +475,7 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         const config = JSON.parse(data);
-        sendJson(res, 200, config);
+        sendJson(res, 200, maskConfig(config));
       } catch (parseErr) {
         sendError(res, `Failed to parse config file: ${parseErr.message}`);
       }
@@ -419,7 +495,8 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       if (overflow) { sendError(res, 'Request body too large', 413); return; }
       try {
-        const config = JSON.parse(body);
+        let config = JSON.parse(body);
+        config = extractSecrets(config);
         fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8', (err) => {
           if (err) {
             sendError(res, `Failed to write config file: ${err.message}`);
@@ -443,6 +520,140 @@ const server = http.createServer(async (req, res) => {
     });
     res.end();
     return;
+  }
+
+  // ── Security: PIN auth endpoints ──
+  if (req.method === 'GET' && pathname === '/api/auth/status') {
+    const auth = getAuth();
+    sendJson(res, 200, { hasPin: !!auth.pinHash, publicMode: !!auth.publicMode });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/auth/set-pin') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { pin, currentPin } = JSON.parse(body);
+        if (!pin || pin.length < 4 || pin.length > 6 || !/^\d+$/.test(pin)) {
+          sendJson(res, 400, { error: 'PIN must be 4-6 digits' }); return;
+        }
+        const auth = getAuth();
+        // If PIN already set, require current PIN
+        if (auth.pinHash && (!currentPin || hashPin(currentPin) !== auth.pinHash)) {
+          sendJson(res, 403, { error: 'Current PIN is incorrect' }); return;
+        }
+        auth.pinHash = hashPin(pin);
+        writeJsonFile(AUTH_FILE, auth);
+        sendJson(res, 200, { status: 'ok' });
+      } catch (e) { sendError(res, e.message, 400); }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/auth/verify-pin') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { pin } = JSON.parse(body);
+        const auth = getAuth();
+        if (!auth.pinHash) { sendJson(res, 200, { valid: true }); return; }
+        const valid = hashPin(pin) === auth.pinHash;
+        sendJson(res, 200, { valid });
+      } catch (e) { sendError(res, e.message, 400); }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/auth/remove-pin') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { pin } = JSON.parse(body);
+        const auth = getAuth();
+        if (auth.pinHash && hashPin(pin) !== auth.pinHash) {
+          sendJson(res, 403, { error: 'PIN is incorrect' }); return;
+        }
+        delete auth.pinHash;
+        writeJsonFile(AUTH_FILE, auth);
+        sendJson(res, 200, { status: 'ok' });
+      } catch (e) { sendError(res, e.message, 400); }
+    });
+    return;
+  }
+
+  // ── Security: Public mode ──
+  if (req.method === 'GET' && pathname === '/api/mode') {
+    const auth = getAuth();
+    sendJson(res, 200, { publicMode: !!auth.publicMode });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/mode') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { publicMode, pin } = JSON.parse(body);
+        const auth = getAuth();
+        // Require PIN to toggle mode if PIN is set
+        if (auth.pinHash && (!pin || hashPin(pin) !== auth.pinHash)) {
+          sendJson(res, 403, { error: 'PIN required' }); return;
+        }
+        auth.publicMode = !!publicMode;
+        writeJsonFile(AUTH_FILE, auth);
+        sendJson(res, 200, { status: 'ok', publicMode: auth.publicMode });
+      } catch (e) { sendError(res, e.message, 400); }
+    });
+    return;
+  }
+
+  // ── Security: Secrets management ──
+  if (req.method === 'POST' && pathname.match(/^\/api\/secrets\/[^/]+$/)) {
+    if (isPublicMode()) { sendJson(res, 403, { error: 'Forbidden in public mode' }); return; }
+    const widgetId = pathname.split('/')[3];
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const updates = JSON.parse(body);
+        const secrets = getSecrets();
+        if (!secrets[widgetId]) secrets[widgetId] = {};
+        Object.assign(secrets[widgetId], updates);
+        writeJsonFile(SECRETS_FILE, secrets);
+        sendJson(res, 200, { status: 'ok' });
+      } catch (e) { sendError(res, e.message, 400); }
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname.match(/^\/api\/secrets\/[^/]+\/[^/]+$/)) {
+    if (isPublicMode()) { sendJson(res, 403, { error: 'Forbidden in public mode' }); return; }
+    const parts = pathname.split('/');
+    const widgetId = parts[3];
+    const key = parts[4];
+    const secrets = getSecrets();
+    if (secrets[widgetId]) {
+      delete secrets[widgetId][key];
+      if (Object.keys(secrets[widgetId]).length === 0) delete secrets[widgetId];
+      writeJsonFile(SECRETS_FILE, secrets);
+    }
+    sendJson(res, 200, { status: 'ok' });
+    return;
+  }
+
+  // ── Public mode guard: block edit-related APIs ──
+  if (isPublicMode()) {
+    const editPaths = ['/config'];
+    const isEditApi = (req.method === 'POST' && editPaths.includes(pathname)) ||
+                      (req.method === 'POST' && pathname.startsWith('/api/templates/')) ||
+                      (req.method === 'DELETE' && pathname.startsWith('/api/templates/'));
+    if (isEditApi) {
+      sendJson(res, 403, { error: 'Dashboard is in public mode. Editing is disabled.' });
+      return;
+    }
   }
 
   // ── Pages system routing ──
@@ -848,9 +1059,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/rss?url=<feedUrl> - Server-side RSS proxy
+  // GET /api/rss?url=<feedUrl>&widgetId=<id>&secretKey=<key> - Server-side RSS proxy
   if (req.method === 'GET' && pathname === '/api/rss') {
-    const feedUrl = parsedUrl.searchParams.get('url');
+    let feedUrl = parsedUrl.searchParams.get('url');
+    const rssWidgetId = parsedUrl.searchParams.get('widgetId');
+    const rssSecretKey = parsedUrl.searchParams.get('secretKey') || 'feedUrl';
+    if ((!feedUrl || feedUrl === '••••••••' || feedUrl === '__SECRET__') && rssWidgetId) {
+      const secrets = getSecrets();
+      feedUrl = secrets[rssWidgetId]?.[rssSecretKey] || null;
+    }
     if (!feedUrl) { sendError(res, 'Missing url parameter', 400); return; }
 
     // Validate URL: only http/https, block private/internal IPs (SSRF protection)
@@ -903,10 +1120,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/calendar?url=<icalUrl>&max=<maxEvents> - iCal feed proxy + parser
+  // GET /api/calendar?url=<icalUrl>&max=<maxEvents>&widgetId=<id>&secretKey=<key> - iCal feed proxy + parser
   if (req.method === 'GET' && pathname === '/api/calendar') {
-    const icalUrl = parsedUrl.searchParams.get('url');
+    let icalUrl = parsedUrl.searchParams.get('url');
     const maxEvents = Math.min(parseInt(parsedUrl.searchParams.get('max')) || 10, 50);
+    const widgetId = parsedUrl.searchParams.get('widgetId');
+    const secretKey = parsedUrl.searchParams.get('secretKey') || 'icalUrl';
+    // If url is masked/placeholder, resolve from secrets
+    if ((!icalUrl || icalUrl === '••••••••' || icalUrl === '__SECRET__') && widgetId) {
+      const secrets = getSecrets();
+      icalUrl = secrets[widgetId]?.[secretKey] || null;
+    }
     if (!icalUrl) { sendError(res, 'Missing url parameter', 400); return; }
 
     // Validate URL: only http/https, block private/internal IPs
@@ -981,7 +1205,13 @@ const server = http.createServer(async (req, res) => {
       try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
         const w = (cfg.widgets || []).find(w => w.type === 'ai-usage-claude');
-        if (w && w.properties && w.properties.apiKey) apiKey = w.properties.apiKey;
+        if (w && w.properties && w.properties.apiKey && w.properties.apiKey !== '__SECRET__') {
+          apiKey = w.properties.apiKey;
+        } else if (w) {
+          // Check secrets store
+          const secrets = getSecrets();
+          apiKey = secrets[w.id]?.apiKey || null;
+        }
       } catch(e) {}
     }
     if (!apiKey) { sendJson(res, 200, { error: 'No API key configured. Add your Anthropic Admin key in the widget properties.', tokens: 0, cost: 0, models: [] }); return; }
@@ -1051,7 +1281,12 @@ const server = http.createServer(async (req, res) => {
       try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
         const w = (cfg.widgets || []).find(w => w.type === 'ai-usage-openai');
-        if (w && w.properties && w.properties.apiKey) apiKey = w.properties.apiKey;
+        if (w && w.properties && w.properties.apiKey && w.properties.apiKey !== '__SECRET__') {
+          apiKey = w.properties.apiKey;
+        } else if (w) {
+          const secrets = getSecrets();
+          apiKey = secrets[w.id]?.apiKey || null;
+        }
       } catch(e) {}
     }
     if (!apiKey) { sendJson(res, 200, { error: 'No API key configured. Add your OpenAI key in the widget properties.', tokens: 0, cost: 0, models: [] }); return; }
@@ -1276,7 +1511,9 @@ const server = http.createServer(async (req, res) => {
 
         const sensitiveKeys = ['apiKey', 'api_key', 'token', 'secret', 'password'];
         const privateIpRegex = /^https?:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|localhost|127\.0\.0\.1)/i;
-        const keepUrlKeys = ['icalUrl', 'feedUrl'];
+        // URLs that may contain private auth tokens — strip them in templates
+        const privateUrlKeys = ['icalUrl'];
+        const privateUrlPatterns = [/[?&/]private[-_]?[a-f0-9]/i, /caldav\.icloud\.com/i, /\/private\//i];
 
         function stripSensitive(props) {
           if (!props || typeof props !== 'object') return props;
@@ -1289,7 +1526,16 @@ const server = http.createServer(async (req, res) => {
             } else if ((key === 'url' || key === 'endpoint') && typeof result[key] === 'string' && privateIpRegex.test(result[key])) {
               result[key] = 'http://your-server:port/path';
               stripped = true;
-            } else if (!keepUrlKeys.includes(key) && typeof result[key] === 'object' && result[key] !== null) {
+            } else if (privateUrlKeys.includes(key) && typeof result[key] === 'string') {
+              // Always strip private calendar/feed URLs — they contain auth tokens
+              if (result[key] && (result[key].length > 0)) {
+                const hasPrivateToken = privateUrlPatterns.some(p => p.test(result[key]));
+                if (hasPrivateToken) {
+                  result[key] = '';
+                  stripped = true;
+                }
+              }
+            } else if (typeof result[key] === 'object' && result[key] !== null) {
               const inner = stripSensitive(result[key]);
               result[key] = inner.result;
               if (inner.stripped) stripped = true;

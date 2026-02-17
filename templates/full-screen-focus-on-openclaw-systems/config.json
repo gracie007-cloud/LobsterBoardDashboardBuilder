@@ -269,10 +269,11 @@
       "height": 200,
       "properties": {
         "title": "Calendar",
-        "icalUrl": "https://calendar.google.com/calendar/ical/curbob%40gmail.com/private-da3070618dc7bf05f1515cccd39f09e8/basic.ics",
+        "icalUrl": "",
         "maxEvents": 5,
         "refreshInterval": 300
-      }
+      },
+      "_templateNote": "\u26a0\ufe0f Configure this widget's settings after import"
     },
     {
       "id": "widget-48",
@@ -300,7 +301,7 @@
         "apiKey": "YOUR_API_KEY_HERE",
         "repo": "LobsterBoard"
       },
-      "_templateNote": "⚠️ Configure this widget's settings after import"
+      "_templateNote": "\u26a0\ufe0f Configure this widget's settings after import"
     },
     {
       "id": "widget-50",
@@ -329,7 +330,7 @@
         "apiKeyNote": "Get a free key at finnhub.io/register",
         "refreshInterval": 60
       },
-      "_templateNote": "⚠️ Configure this widget's settings after import"
+      "_templateNote": "\u26a0\ufe0f Configure this widget's settings after import"
     }
   ]
 }
