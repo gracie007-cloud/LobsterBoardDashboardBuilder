@@ -4,6 +4,104 @@
  */
 
 // ─────────────────────────────────────────────
+// Icon System - Themeable widget icons
+// ─────────────────────────────────────────────
+const WIDGET_ICONS = {
+  // Weather
+  'weather': { emoji: '🌡️', phosphor: 'thermometer' },
+  'weather-sunny': { emoji: '☀️', phosphor: 'sun' },
+  'weather-cloudy': { emoji: '⛅', phosphor: 'cloud-sun' },
+  'weather-rainy': { emoji: '🌧️', phosphor: 'cloud-rain' },
+  'weather-snowy': { emoji: '❄️', phosphor: 'snowflake' },
+  'world-weather': { emoji: '🌍', phosphor: 'globe' },
+  
+  // Time
+  'clock': { emoji: '🕐', phosphor: 'clock' },
+  'countdown': { emoji: '⏳', phosphor: 'hourglass' },
+  'cron': { emoji: '⏰', phosphor: 'timer' },
+  'pomodoro': { emoji: '🎯', phosphor: 'crosshair' },
+  'world-clock': { emoji: '🌍', phosphor: 'globe' },
+  
+  // System
+  'cpu': { emoji: '💻', phosphor: 'cpu' },
+  'memory': { emoji: '🧠', phosphor: 'brain' },
+  'disk': { emoji: '💾', phosphor: 'hard-drive' },
+  'network': { emoji: '🌐', phosphor: 'wifi-high' },
+  'docker': { emoji: '🐳', phosphor: 'cube' },
+  'uptime': { emoji: '📡', phosphor: 'broadcast' },
+  'system-log': { emoji: '🔧', phosphor: 'wrench' },
+  
+  // Auth / Security
+  'auth': { emoji: '🔐', phosphor: 'lock-key' },
+  'sleep': { emoji: '😴', phosphor: 'moon' },
+  
+  // Releases
+  'lobster': { emoji: '🦞', phosphor: 'package' },
+  'release': { emoji: '📦', phosphor: 'package' },
+  
+  // Lists / Activity
+  'activity': { emoji: '📋', phosphor: 'list' },
+  'calendar': { emoji: '📅', phosphor: 'calendar' },
+  'notes': { emoji: '📝', phosphor: 'note' },
+  'todo': { emoji: '✅', phosphor: 'check-square' },
+  'pages': { emoji: '📑', phosphor: 'files' },
+  
+  // AI / Monitoring
+  'ai-claude': { emoji: '🟣', phosphor: 'circle' },
+  'ai-cost': { emoji: '💰', phosphor: 'currency-dollar' },
+  'api-status': { emoji: '🔄', phosphor: 'arrows-clockwise' },
+  'sessions': { emoji: '💬', phosphor: 'chat-dots' },
+  'tokens': { emoji: '📊', phosphor: 'chart-bar' },
+  
+  // Finance
+  'stock': { emoji: '📈', phosphor: 'chart-line-up' },
+  'crypto': { emoji: '₿', phosphor: 'currency-btc' },
+  
+  // Productivity
+  'email': { emoji: '📧', phosphor: 'envelope' },
+  'github': { emoji: '🐙', phosphor: 'git-branch' },
+  
+  // Smart Home
+  'home': { emoji: '🏠', phosphor: 'house' },
+  'camera': { emoji: '📷', phosphor: 'camera' },
+  'power': { emoji: '🔌', phosphor: 'plug' },
+  
+  // Media
+  'music': { emoji: '🎵', phosphor: 'music-notes' },
+  'quote': { emoji: '💭', phosphor: 'quotes' },
+  
+  // Images
+  'image': { emoji: '🖼️', phosphor: 'image' },
+  'image-random': { emoji: '🎲', phosphor: 'shuffle' },
+  'image-new': { emoji: '🆕', phosphor: 'sparkle' },
+  
+  // Links / Embeds
+  'links': { emoji: '🔗', phosphor: 'link' },
+  'embed': { emoji: '🌐', phosphor: 'browser' },
+  'rss': { emoji: '📡', phosphor: 'rss' },
+  
+  // Layout
+  'header': { emoji: '🔤', phosphor: 'text-aa' },
+  'line-h': { emoji: '➖', phosphor: 'minus' },
+  'line-v': { emoji: '│', phosphor: 'line-vertical' },
+};
+
+/**
+ * Renders a themeable icon span
+ * @param {string} iconId - Key from WIDGET_ICONS
+ * @returns {string} HTML span element with data-icon attribute
+ */
+function renderIcon(iconId) {
+  const icon = WIDGET_ICONS[iconId];
+  const emoji = icon ? icon.emoji : '●';
+  return `<span class="lb-icon" data-icon="${iconId}">${emoji}</span> `;
+}
+
+// Expose for external use
+window.renderIcon = renderIcon;
+window.WIDGET_ICONS = WIDGET_ICONS;
+
+// ─────────────────────────────────────────────
 // Shared SSE connection for system stats widgets
 // ─────────────────────────────────────────────
 let _statsSource = null;
@@ -84,10 +182,10 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🌡️ ${props.title || 'Local Weather'}</span>
+          <span class="dash-card-title">${renderIcon('weather')} ${props.title || 'Local Weather'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
-          <span id="${props.id}-icon" style="font-size:calc(24px * var(--font-scale, 1));">🌡️</span>
+          <span id="${props.id}-icon" class="lb-icon lb-icon-lg" data-icon="weather">🌡️</span>
           <div>
             <div class="kpi-value blue" id="${props.id}-value">Loading...</div>
             <div class="kpi-label" id="${props.id}-label">${props.location || 'Location'}</div>
@@ -111,12 +209,15 @@ const WIDGETS = {
           labelEl.textContent = current.weatherDesc[0].value;
           // Update icon based on condition
           const code = parseInt(current.weatherCode);
-          let icon = '🌡️';
-          if (code === 113) icon = '☀️';
-          else if (code === 116 || code === 119) icon = '⛅';
-          else if (code >= 176 && code <= 359) icon = '🌧️';
-          else if (code >= 368 && code <= 395) icon = '❄️';
-          iconEl.textContent = icon;
+          let iconId = 'weather';
+          if (code === 113) iconId = 'weather-sunny';
+          else if (code === 116 || code === 119) iconId = 'weather-cloudy';
+          else if (code >= 176 && code <= 359) iconId = 'weather-rainy';
+          else if (code >= 368 && code <= 395) iconId = 'weather-snowy';
+          iconEl.setAttribute('data-icon', iconId);
+          // Update emoji fallback for non-themed views
+          const icons = window.WIDGET_ICONS || {};
+          iconEl.textContent = icons[iconId] ? icons[iconId].emoji : '🌡️';
         } catch (e) {
           console.error('Weather widget error:', e);
           if (!valEl.dataset.loaded) valEl.textContent = 'Unavailable';
@@ -150,12 +251,12 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🌍 ${props.title || 'World Weather'}</span>
+          <span class="dash-card-title">${renderIcon('world-weather')} ${props.title || 'World Weather'}</span>
         </div>
         <div class="dash-card-body" id="${props.id}-list">
-          <div class="weather-row"><span class="weather-icon">☀️</span><span class="weather-loc">New York</span><span class="weather-temp">72°F</span></div>
-          <div class="weather-row"><span class="weather-icon">⛅</span><span class="weather-loc">London</span><span class="weather-temp">58°F</span></div>
-          <div class="weather-row"><span class="weather-icon">🌧️</span><span class="weather-loc">Tokyo</span><span class="weather-temp">65°F</span></div>
+          <div class="weather-row"><span class="weather-icon lb-icon" data-icon="weather-sunny">☀️</span><span class="weather-loc">New York</span><span class="weather-temp">72°F</span></div>
+          <div class="weather-row"><span class="weather-icon lb-icon" data-icon="weather-cloudy">⛅</span><span class="weather-loc">London</span><span class="weather-temp">58°F</span></div>
+          <div class="weather-row"><span class="weather-icon lb-icon" data-icon="weather-rainy">🌧️</span><span class="weather-loc">Tokyo</span><span class="weather-temp">65°F</span></div>
         </div>
       </div>`,
     generateJs: (props) => `
@@ -173,19 +274,21 @@ const WIDGETS = {
             const current = data.current_condition[0];
             const temp = unit === 'C' ? current.temp_C : current.temp_F;
             const code = parseInt(current.weatherCode);
-            let icon = '🌡️';
-            if (code === 113) icon = '☀️';
-            else if (code === 116 || code === 119) icon = '⛅';
-            else if (code >= 176 && code <= 359) icon = '🌧️';
-            else if (code >= 368 && code <= 395) icon = '❄️';
-            return { loc, temp, icon, desc: current.weatherDesc[0].value };
+            let iconId = 'weather';
+            if (code === 113) iconId = 'weather-sunny';
+            else if (code === 116 || code === 119) iconId = 'weather-cloudy';
+            else if (code >= 176 && code <= 359) iconId = 'weather-rainy';
+            else if (code >= 368 && code <= 395) iconId = 'weather-snowy';
+            const icons = window.WIDGET_ICONS || {};
+            const emoji = icons[iconId] ? icons[iconId].emoji : '🌡️';
+            return { loc, temp, iconId, emoji, desc: current.weatherDesc[0].value };
           } catch (e) {
-            return { loc, temp: 'N/A', icon: '❓', desc: 'Error' };
+            return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓', desc: 'Error' };
           }
         }));
         
         container.innerHTML = results.map(r => 
-          '<div class="weather-row"><span class="weather-icon">' + r.icon + '</span><span class="weather-loc">' + r.loc + '</span><span class="weather-temp">' + r.temp + unitSymbol + '</span></div>'
+          '<div class="weather-row"><span class="weather-icon lb-icon" data-icon="' + r.iconId + '">' + r.emoji + '</span><span class="weather-loc">' + r.loc + '</span><span class="weather-temp">' + r.temp + unitSymbol + '</span></div>'
         ).join('');
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -215,7 +318,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🔐 ${props.title || 'Auth Type'}</span>
+          <span class="dash-card-title">${renderIcon('auth')} ${props.title || 'Auth Type'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-indicator" id="${props.id}-dot"></div>
@@ -267,7 +370,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">😴 ${props.title || 'Sleep Score'}</span>
+          <span class="dash-card-title">${renderIcon('sleep')} ${props.title || 'Sleep Score'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-ring-wrap kpi-ring-sm">
@@ -318,10 +421,10 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🦞 ${props.title || 'LobsterBoard'}</span>
+          <span class="dash-card-title">${renderIcon('lobster')} ${props.title || 'LobsterBoard'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;gap:10px;padding:8px 12px;">
-          <span style="font-size:calc(20px * var(--font-scale, 1));">🦞</span>
+          <span class="lb-icon lb-icon-lg" data-icon="lobster">🦞</span>
           <div>
             <div id="${props.id}-versions" style="display:flex;align-items:center;gap:6px;font-size:calc(13px * var(--font-scale, 1));color:#c9d1d9;">
               <span id="${props.id}-current">—</span>
@@ -346,12 +449,16 @@ const WIDGETS = {
           
           const cur = (data.current || '').replace(/^v/, '');
           const lat = (data.latest || '').replace(/^v/, '');
+          // Strip -N suffixes for comparison (e.g. 2026.2.22-2 matches 2026.2.22)
+          const curBase = cur.replace(/-\d+$/, '');
+          const latBase = lat.replace(/-\d+$/, '');
+          const isUpToDate = cur === lat || curBase === latBase || cur.startsWith(latBase + '-');
           
           if (!cur || cur === 'unknown') {
             currentEl.textContent = 'v' + lat;
             statusEl.textContent = 'Latest release';
             statusEl.style.color = '#8b949e';
-          } else if (cur === lat) {
+          } else if (isUpToDate) {
             currentEl.textContent = 'v' + cur;
             currentEl.style.color = '#3fb950';
             statusEl.innerHTML = '✓ Up to date';
@@ -396,10 +503,10 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🦞 ${props.title || 'OpenClaw'}</span>
+          <span class="dash-card-title">${renderIcon('release')} ${props.title || 'OpenClaw'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;gap:10px;padding:8px 12px;">
-          <span style="font-size:calc(20px * var(--font-scale, 1));">📦</span>
+          <span class="lb-icon lb-icon-lg" data-icon="release">📦</span>
           <div>
             <div id="${props.id}-versions" style="display:flex;align-items:center;gap:6px;font-size:calc(13px * var(--font-scale, 1));color:#c9d1d9;">
               <span id="${props.id}-current">—</span>
@@ -424,12 +531,16 @@ const WIDGETS = {
           
           const cur = (data.current || '').replace(/^v/, '');
           const lat = (data.latest || '').replace(/^v/, '');
+          // Strip -N suffixes for comparison (e.g. 2026.2.22-2 matches 2026.2.22)
+          const curBase = cur.replace(/-\d+$/, '');
+          const latBase = lat.replace(/-\d+$/, '');
+          const isUpToDate = cur === lat || curBase === latBase || cur.startsWith(latBase + '-');
           
           if (!cur || cur === 'unknown') {
             currentEl.textContent = 'v' + lat;
             statusEl.textContent = 'Latest release';
             statusEl.style.color = '#8b949e';
-          } else if (cur === lat) {
+          } else if (isUpToDate) {
             currentEl.textContent = 'v' + cur;
             currentEl.style.color = '#3fb950';
             statusEl.innerHTML = '✓ Up to date';
@@ -475,10 +586,10 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📦 ${props.title || 'Release'}</span>
+          <span class="dash-card-title">${renderIcon('release')} ${props.title || 'Release'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;gap:10px;padding:8px 12px;">
-          <span style="font-size:calc(20px * var(--font-scale, 1));">📦</span>
+          <span class="lb-icon lb-icon-lg" data-icon="release">📦</span>
           <div>
             <div id="${props.id}-versions" style="display:flex;align-items:center;gap:6px;font-size:calc(13px * var(--font-scale, 1));color:#c9d1d9;">
               <span id="${props.id}-current">—</span>
@@ -552,7 +663,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🕐 ${props.title || 'Clock'}</span>
+          <span class="dash-card-title">${renderIcon('clock')} ${props.title || 'Clock'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="kpi-value" id="${props.id}-time">—</div>
@@ -602,7 +713,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📋 ${props.title || 'Today'}</span>
+          <span class="dash-card-title">${renderIcon('activity')} ${props.title || 'Today'}</span>
           <span class="dash-card-badge" id="${props.id}-badge">—</span>
         </div>
         <div class="dash-card-body compact-list" id="${props.id}-list">
@@ -671,7 +782,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">⏰ ${props.title || 'Cron'}</span>
+          <span class="dash-card-title">${renderIcon('cron')} ${props.title || 'Cron'}</span>
           <span class="dash-card-badge" id="${props.id}-badge">—</span>
         </div>
         <div class="dash-card-body" id="${props.id}-list" style="display:grid;grid-template-columns:repeat(${props.columns || 1}, 1fr);gap:0 12px;align-content:start;">
@@ -747,7 +858,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🔧 ${props.title || 'System Log'}</span>
+          <span class="dash-card-title">${renderIcon('system-log')} ${props.title || 'System Log'}</span>
           <span class="dash-card-badge" id="${props.id}-badge">—</span>
         </div>
         <div class="dash-card-body compact-list syslog-scroll" id="${props.id}-log">
@@ -833,7 +944,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📅 ${props.title || 'Calendar'}</span>
+          <span class="dash-card-title">${renderIcon('calendar')} ${props.title || 'Calendar'}</span>
         </div>
         <div class="dash-card-body" id="${props.id}-events" style="overflow-y:auto;">
           <div style="color:#8b949e;font-size:calc(13px * var(--font-scale, 1));">Loading events…</div>
@@ -856,12 +967,13 @@ const WIDGETS = {
             return;
           }
           function _escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+          function _linkify(s) { return _escHtml(s).replace(/(https?:\\/\\/[^\\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:underline;">$1</a>'); }
           container.innerHTML = events.map(function(ev) {
             var timeStr = ev.allDay ? 'All Day' : new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
             return '<div style="padding:4px 0;border-bottom:1px solid #21262d;font-size:calc(13px * var(--font-scale, 1));">' +
               '<span style="color:#58a6ff;">' + timeStr + '</span> ' +
-              '<span style="color:#e6edf3;">' + _escHtml(ev.summary || 'Untitled') + '</span>' +
-              (ev.location ? '<div style="color:#8b949e;font-size:calc(11px * var(--font-scale, 1));margin-top:2px;">📍 ' + _escHtml(ev.location) + '</div>' : '') +
+              '<span style="color:#e6edf3;">' + _linkify(ev.summary || 'Untitled') + '</span>' +
+              (ev.location ? '<div style="color:#8b949e;font-size:calc(11px * var(--font-scale, 1));margin-top:2px;">📍 ' + _linkify(ev.location) + '</div>' : '') +
               '</div>';
           }).join('');
         } catch (e) {
@@ -892,7 +1004,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📝 ${props.title || 'Notes'}</span>
+          <span class="dash-card-title">${renderIcon('notes')} ${props.title || 'Notes'}</span>
           <span class="dash-card-badge" id="${props.id}-badge">0</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
@@ -1064,7 +1176,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🟣 ${props.title || 'Claude'}</span>
+          <span class="dash-card-title">${renderIcon('ai-claude')} ${props.title || 'Claude'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
           <div class="kpi-value" id="${props.id}-tokens" style="color:#a371f7;font-size:calc(22px * var(--font-scale, 1));">—</div>
@@ -1249,7 +1361,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">💰 ${props.title || 'AI Costs'}</span>
+          <span class="dash-card-title">${renderIcon('ai-cost')} ${props.title || 'AI Costs'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-value green" id="${props.id}-cost">—</div>
@@ -1294,7 +1406,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🔄 ${props.title || 'API Status'}</span>
+          <span class="dash-card-title">${renderIcon('api-status')} ${props.title || 'API Status'}</span>
         </div>
         <div class="dash-card-body" id="${props.id}-status">
           <div class="status-row">🟢 OpenAI</div>
@@ -1354,7 +1466,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">💬 ${props.title || 'Sessions'}</span>
+          <span class="dash-card-title">${renderIcon('sessions')} ${props.title || 'Sessions'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-value blue" id="${props.id}-count">—</div>
@@ -1401,7 +1513,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📊 ${props.title || 'Tokens'}</span>
+          <span class="dash-card-title">${renderIcon('tokens')} ${props.title || 'Tokens'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="kpi-value" id="${props.id}-value">—</div>
@@ -1454,7 +1566,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">💻 ${props.title || 'System'}</span>
+          <span class="dash-card-title">${renderIcon('cpu')} ${props.title || 'System'}</span>
         </div>
         <div class="dash-card-body">
         <div class="sys-row"><span>CPU</span><span class="blue" id="${props.id}-cpu">—</span></div>
@@ -1497,7 +1609,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">💾 ${props.title || 'Disk Usage'}</span>
+          <span class="dash-card-title">${renderIcon('disk')} ${props.title || 'Disk Usage'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-ring-wrap kpi-ring-sm">
@@ -1553,7 +1665,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📡 ${props.title || 'Uptime'}</span>
+          <span class="dash-card-title">${renderIcon('uptime')} ${props.title || 'Uptime'}</span>
         </div>
         <div class="dash-card-body" id="${props.id}-services">
           <div class="uptime-row" style="color:var(--text-muted);justify-content:center;">Loading...</div>
@@ -1572,13 +1684,13 @@ const WIDGETS = {
         if (d > 0) uptimeStr = d + 'd ' + h + 'h ' + m + 'm';
         else if (h > 0) uptimeStr = h + 'h ' + m + 'm';
         else uptimeStr = m + 'm';
-        var html = '<div class="uptime-row"><span>🟢 System</span><span class="uptime-pct">' + uptimeStr + '</span></div>';
+        var html = '<div class="uptime-row"><span>' + window.renderIcon('uptime') + ' System</span><span class="uptime-pct">' + uptimeStr + '</span></div>';
         if (data.cpu) {
-          html += '<div class="uptime-row"><span>💻 CPU Load</span><span class="uptime-pct">' + data.cpu.currentLoad.toFixed(1) + '%</span></div>';
+          html += '<div class="uptime-row"><span>' + window.renderIcon('cpu') + ' CPU Load</span><span class="uptime-pct">' + data.cpu.currentLoad.toFixed(1) + '%</span></div>';
         }
         if (data.memory) {
           const memPct = ((data.memory.active / data.memory.total) * 100).toFixed(1);
-          html += '<div class="uptime-row"><span>🧠 Memory</span><span class="uptime-pct">' + memPct + '%</span></div>';
+          html += '<div class="uptime-row"><span>' + window.renderIcon('memory') + ' Memory</span><span class="uptime-pct">' + memPct + '%</span></div>';
         }
         container.innerHTML = html;
       });
@@ -1606,7 +1718,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🐳 ${props.title || 'Containers'}</span>
+          <span class="dash-card-title">${renderIcon('docker')} ${props.title || 'Containers'}</span>
           <span class="dash-card-badge" id="${props.id}-badge">—</span>
         </div>
         <div class="dash-card-body compact-list" id="${props.id}-list">
@@ -1654,7 +1766,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🌐 ${props.title || 'Network'}</span>
+          <span class="dash-card-title">${renderIcon('network')} ${props.title || 'Network'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="net-row">↓ <span class="green" id="${props.id}-down">—</span></div>
@@ -1709,7 +1821,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">✅ ${props.title || 'Todo'}</span>
+          <span class="dash-card-title">${renderIcon('todo')} ${props.title || 'Todo'}</span>
           <span class="dash-card-badge" id="${props.id}-badge">0</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
@@ -1801,7 +1913,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📧 ${props.title || 'Email'}</span>
+          <span class="dash-card-title">${renderIcon('email')} ${props.title || 'Email'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-value red" id="${props.id}-count">—</div>
@@ -1846,7 +1958,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🎯 ${props.title || 'Focus'}</span>
+          <span class="dash-card-title">${renderIcon('pomodoro')} ${props.title || 'Focus'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
           <div class="kpi-value" id="${props.id}-time">${props.workMinutes || 25}:00</div>
@@ -1958,7 +2070,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🐙 ${props.title || 'GitHub'}</span>
+          <span class="dash-card-title">${renderIcon('github')} ${props.title || 'GitHub'}</span>
         </div>
         <div class="dash-card-body" id="${props.id}-stats" style="font-size:calc(13px * var(--font-scale, 1));">
           <div style="color:var(--text-muted);">Loading...</div>
@@ -2040,7 +2152,7 @@ const WIDGETS = {
     </div>`,
     generateHtml: (props) => `
       <section class="news-ticker-wrap" id="widget-${props.id}">
-        <span class="ticker-label">📈</span>
+        <span class="ticker-label lb-icon" data-icon="stock">📈</span>
         <div class="ticker-track">
           <div class="ticker-content" id="${props.id}-ticker">${props.apiKey ? 'Loading stocks...' : 'Set API key in Edit Mode (Ctrl+E) — free at finnhub.io/register'}</div>
         </div>
@@ -2104,7 +2216,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">₿ ${props.coin?.toUpperCase() || 'BTC'}</span>
+          <span class="dash-card-title">${renderIcon('crypto')} ${props.coin?.toUpperCase() || 'BTC'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="kpi-value" id="${props.id}-price" style="position:relative;">
@@ -2172,7 +2284,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🏠 ${props.title || 'Indoor'}</span>
+          <span class="dash-card-title">${renderIcon('home')} ${props.title || 'Indoor'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-value" id="${props.id}-temp">—</div>
@@ -2216,7 +2328,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📷 ${props.title || 'Camera'}</span>
+          <span class="dash-card-title">${renderIcon('camera')} ${props.title || 'Camera'}</span>
         </div>
         <div class="dash-card-body camera-body">
           <img id="${props.id}-feed" src="${props.streamUrl || ''}" alt="Camera feed" style="width:100%;height:100%;object-fit:cover;">
@@ -2251,7 +2363,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🔌 ${props.title || 'Power'}</span>
+          <span class="dash-card-title">${renderIcon('power')} ${props.title || 'Power'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;justify-content:center;gap:10px;">
           <div class="kpi-value orange" id="${props.id}-watts">—</div>
@@ -2303,7 +2415,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🎵 ${props.title || 'Now Playing'}</span>
+          <span class="dash-card-title">${renderIcon('music')} ${props.title || 'Now Playing'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;align-items:center;gap:12px;">
           <div class="np-art" id="${props.id}-art"></div>
@@ -2359,7 +2471,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">💭 ${props.title || 'Quote'}</span>
+          <span class="dash-card-title">${renderIcon('quote')} ${props.title || 'Quote'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;justify-content:center;">
           <div class="quote-text" id="${props.id}-text" style="font-style:italic;">Loading quote...</div>
@@ -2418,7 +2530,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">⏳ ${props.title || 'Countdown'}</span>
+          <span class="dash-card-title">${renderIcon('countdown')} ${props.title || 'Countdown'}</span>
         </div>
         <div class="dash-card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="kpi-value" id="${props.id}-countdown">—</div>
@@ -2472,12 +2584,12 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🖼️ ${props.title || 'Image'}</span>
+          <span class="dash-card-title">${renderIcon('image')} ${props.title || 'Image'}</span>
         </div>
         <div class="dash-card-body" style="padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-tertiary);">
           ${props.imagePath 
             ? `<img src="${props.imagePath}" style="width:100%;height:100%;object-fit:contain;">`
-            : `<span style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">🖼️ No image path</span>`
+            : `<span style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">${renderIcon('image')} No image path</span>`
           }
         </div>
       </div>`,
@@ -2506,11 +2618,11 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🎲 ${props.title || 'Random Image'}</span>
+          <span class="dash-card-title">${renderIcon('image-random')} ${props.title || 'Random Image'}</span>
         </div>
         <div class="dash-card-body" style="padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-tertiary);">
           <img id="${props.id}-img" src="" style="width:100%;height:100%;object-fit:contain;display:none;">
-          <span id="${props.id}-placeholder" style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">🎲 No images added</span>
+          <span id="${props.id}-placeholder" style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">${renderIcon('image-random')} No images added</span>
         </div>
       </div>`,
     generateJs: (props) => {
@@ -2559,12 +2671,12 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🆕 ${props.title || 'Latest Image'}</span>
+          <span class="dash-card-title">${renderIcon('image-new')} ${props.title || 'Latest Image'}</span>
           <span id="${props.id}-filename" style="font-size:11px;color:var(--text-muted);margin-left:auto;"></span>
         </div>
         <div class="dash-card-body" style="padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-tertiary);">
           <img id="${props.id}-img" src="" style="width:100%;height:100%;object-fit:contain;display:none;">
-          <span id="${props.id}-placeholder" style="color:var(--text-muted);font-size:12px;">🆕 ${props.directoryPath ? 'Loading...' : 'No directory set'}</span>
+          <span id="${props.id}-placeholder" style="color:var(--text-muted);font-size:12px;">${renderIcon('image-new')} ${props.directoryPath ? 'Loading...' : 'No directory set'}</span>
         </div>
       </div>`,
     generateJs: (props) => `
@@ -2617,12 +2729,12 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🌐 ${props.title || 'Image'}</span>
+          <span class="dash-card-title">${renderIcon('embed')} ${props.title || 'Image'}</span>
         </div>
         <div class="dash-card-body" style="padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-tertiary);">
           ${props.imageUrl 
             ? `<img src="${props.imageUrl}" style="width:100%;height:100%;object-fit:contain;">`
-            : `<span style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">🌐 No image URL</span>`
+            : `<span style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">${renderIcon('embed')} No image URL</span>`
           }
         </div>
       </div>`,
@@ -2653,7 +2765,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🔗 ${props.title || 'Quick Links'}</span>
+          <span class="dash-card-title">${renderIcon('links')} ${props.title || 'Quick Links'}</span>
         </div>
         <div class="dash-card-body links-list" id="${props.id}-links">
           ${(props.links || []).length === 0 ? '<span style="color:var(--text-muted);font-size:calc(12px * var(--font-scale, 1));">No links added</span>' : ''}
@@ -2708,7 +2820,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🌐 ${props.title || 'Embed'}</span>
+          <span class="dash-card-title">${renderIcon('embed')} ${props.title || 'Embed'}</span>
         </div>
         <div class="dash-card-body" style="padding:0;overflow:hidden;">
           <iframe src="${props.embedUrl || 'about:blank'}" style="width:100%;height:100%;border:none;" ${props.allowFullscreen ? 'allowfullscreen' : ''}></iframe>
@@ -2739,7 +2851,7 @@ const WIDGETS = {
     </div>`,
     generateHtml: (props) => `
       <section class="news-ticker-wrap" id="widget-${props.id}">
-        <span class="ticker-label">📡</span>
+        <span class="ticker-label lb-icon" data-icon="rss">📡</span>
         <div class="ticker-track">
           <div class="ticker-content" id="${props.id}-ticker">Loading feed...</div>
         </div>
@@ -2798,7 +2910,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">🌍 ${props.title || 'World Clock'}</span>
+          <span class="dash-card-title">${renderIcon('world-clock')} ${props.title || 'World Clock'}</span>
         </div>
         <div class="dash-card-body" id="${props.id}-clocks">
           <div style="color:#8b949e;font-size:calc(12px * var(--font-scale, 1));">Loading times...</div>
@@ -2862,7 +2974,7 @@ const WIDGETS = {
     generateHtml: (props) => `
       <div class="dash-card" id="widget-${props.id}" style="height:100%;">
         <div class="dash-card-head">
-          <span class="dash-card-title">📑 ${props.title || 'Pages'}</span>
+          <span class="dash-card-title">${renderIcon('pages')} ${props.title || 'Pages'}</span>
         </div>
         <div class="dash-card-body pages-menu ${props.layout === 'horizontal' ? 'pages-menu-horizontal' : 'pages-menu-vertical'}" id="${props.id}-list">
           <span class="pages-menu-item">Loading…</span>
