@@ -716,7 +716,7 @@ const WIDGETS = {
   // ─────────────────────────────────────────────
 
   'activity-list': {
-    privacyWarning: true,
+
     name: 'Activity List',
     icon: '📋',
     category: 'large',
@@ -787,7 +787,7 @@ const WIDGETS = {
   },
 
   'ai-usage': {
-    privacyWarning: true,
+
     name: 'AI Usage',
     icon: '🤖',
     category: 'large',
@@ -927,7 +927,7 @@ const WIDGETS = {
   },
 
   'claude-local': {
-    privacyWarning: true,
+
     name: 'Claude (Local)',
     icon: '🟣',
     category: 'small',
@@ -998,7 +998,7 @@ const WIDGETS = {
   },
 
   'codex-local': {
-    privacyWarning: true,
+
     name: 'Codex (Local)',
     icon: '🟢',
     category: 'small',
@@ -1069,7 +1069,7 @@ const WIDGETS = {
   },
 
   'cron-jobs': {
-    privacyWarning: true,
+
     name: 'Cron Jobs',
     icon: '⏰',
     category: 'large',
@@ -1144,7 +1144,7 @@ const WIDGETS = {
   },
 
   'system-log': {
-    privacyWarning: true,
+
     name: 'System Log',
     icon: '🔧',
     category: 'large',
@@ -1232,7 +1232,7 @@ const WIDGETS = {
   },
 
   'calendar': {
-    privacyWarning: true,
+
     name: 'Calendar',
     icon: '📅',
     category: 'large',
@@ -2110,7 +2110,7 @@ const WIDGETS = {
   // ─────────────────────────────────────────────
 
   'todo-list': {
-    privacyWarning: true,
+
     name: 'Todo List',
     icon: '✅',
     category: 'large',
