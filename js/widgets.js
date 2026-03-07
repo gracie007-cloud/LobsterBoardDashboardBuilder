@@ -73,6 +73,10 @@ const WIDGET_ICONS = {
   'ai-usage': { emoji: '🤖', phosphor: 'robot' },
   'claude-local': { emoji: '🟣', phosphor: 'circle' },
   'codex-local': { emoji: '🟢', phosphor: 'circle' },
+  'copilot-local': { emoji: '⚫', phosphor: 'circle' },
+  'cursor-local': { emoji: '🔵', phosphor: 'circle' },
+  'gemini-local': { emoji: '🔷', phosphor: 'diamond' },
+  'amp-local': { emoji: '⚡', phosphor: 'lightning' },
   'ai-claude': { emoji: '🟣', phosphor: 'circle' },
   'ai-cost': { emoji: '💰', phosphor: 'currency-dollar' },
   'api-status': { emoji: '🔄', phosphor: 'arrows-clockwise' },
@@ -1062,6 +1066,163 @@ const WIDGETS = {
           content.innerHTML = '<div style="color:#f85149;font-size:11px;">Error</div>';
           badge.textContent = '!';
         }
+      }
+      update_${props.id.replace(/-/g, '_')}();
+      setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 300) * 1000});
+    `
+  },
+
+  'copilot-local': {
+    name: 'Copilot (Local)',
+    icon: '⚫',
+    category: 'small',
+    description: 'Track GitHub Copilot usage. Reads from gh CLI credentials.',
+    defaultWidth: 280,
+    defaultHeight: 180,
+    hasApiKey: false,
+    properties: { title: 'Copilot', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Premium: 20%</div><div>Chat: 5%</div></div>`,
+    generateHtml: (props) => `
+      <div class="dash-card" id="widget-${props.id}" style="height:100%;">
+        <div class="dash-card-head"><span class="dash-card-title">⚫ ${props.title || 'Copilot'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div>
+        <div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div>
+      </div>`,
+    generateJs: (props) => `
+      async function update_${props.id.replace(/-/g, '_')}() {
+        const content = document.getElementById('${props.id}-content');
+        const badge = document.getElementById('${props.id}-badge');
+        try {
+          const res = await fetch('/api/ai-usage/copilot');
+          const data = await res.json();
+          if (data.error) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">' + _esc(data.error) + '</div>'; badge.textContent = '!'; return; }
+          let html = '';
+          if (${props.showPlan !== false} && data.plan) badge.textContent = _esc(data.plan);
+          for (const m of (data.metrics || [])) {
+            const pct = m.used != null ? Math.min(100, Math.max(0, m.used)) : 0;
+            const color = pct > 80 ? '#f85149' : pct > 50 ? '#d29922' : '#3fb950';
+            html += '<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>' + _esc(m.label) + '</span><span style="color:' + color + ';">' + pct.toFixed(0) + '%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + color + ';"></div></div></div>';
+          }
+          content.innerHTML = html || '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+        } catch (e) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">Error</div>'; badge.textContent = '!'; }
+      }
+      update_${props.id.replace(/-/g, '_')}();
+      setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 300) * 1000});
+    `
+  },
+
+  'cursor-local': {
+    name: 'Cursor (Local)',
+    icon: '🔵',
+    category: 'small',
+    description: 'Track Cursor IDE usage. Reads from local SQLite database.',
+    defaultWidth: 280,
+    defaultHeight: 180,
+    hasApiKey: false,
+    properties: { title: 'Cursor', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Total: 15%</div><div>API: 46%</div></div>`,
+    generateHtml: (props) => `
+      <div class="dash-card" id="widget-${props.id}" style="height:100%;">
+        <div class="dash-card-head"><span class="dash-card-title">🔵 ${props.title || 'Cursor'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div>
+        <div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div>
+      </div>`,
+    generateJs: (props) => `
+      async function update_${props.id.replace(/-/g, '_')}() {
+        const content = document.getElementById('${props.id}-content');
+        const badge = document.getElementById('${props.id}-badge');
+        try {
+          const res = await fetch('/api/ai-usage/cursor');
+          const data = await res.json();
+          if (data.error) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">' + _esc(data.error) + '</div>'; badge.textContent = '!'; return; }
+          let html = '';
+          if (${props.showPlan !== false} && data.plan) badge.textContent = _esc(data.plan);
+          for (const m of (data.metrics || [])) {
+            const pct = m.used != null ? Math.min(100, Math.max(0, m.used)) : 0;
+            const color = pct > 80 ? '#f85149' : pct > 50 ? '#d29922' : '#3fb950';
+            html += '<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>' + _esc(m.label) + '</span><span style="color:' + color + ';">' + pct.toFixed(0) + '%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + color + ';"></div></div></div>';
+          }
+          content.innerHTML = html || '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+        } catch (e) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">Error</div>'; badge.textContent = '!'; }
+      }
+      update_${props.id.replace(/-/g, '_')}();
+      setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 300) * 1000});
+    `
+  },
+
+  'gemini-local': {
+    name: 'Gemini (Local)',
+    icon: '🔷',
+    category: 'small',
+    description: 'Track Gemini CLI usage. Reads from local OAuth credentials.',
+    defaultWidth: 280,
+    defaultHeight: 180,
+    hasApiKey: false,
+    properties: { title: 'Gemini', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Pro: 10%</div><div>Flash: 5%</div></div>`,
+    generateHtml: (props) => `
+      <div class="dash-card" id="widget-${props.id}" style="height:100%;">
+        <div class="dash-card-head"><span class="dash-card-title">🔷 ${props.title || 'Gemini'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div>
+        <div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div>
+      </div>`,
+    generateJs: (props) => `
+      async function update_${props.id.replace(/-/g, '_')}() {
+        const content = document.getElementById('${props.id}-content');
+        const badge = document.getElementById('${props.id}-badge');
+        try {
+          const res = await fetch('/api/ai-usage/gemini');
+          const data = await res.json();
+          if (data.error) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">' + _esc(data.error) + '</div>'; badge.textContent = '!'; return; }
+          let html = '';
+          if (${props.showPlan !== false} && data.plan) badge.textContent = _esc(data.plan);
+          for (const m of (data.metrics || [])) {
+            const pct = m.used != null ? Math.min(100, Math.max(0, m.used)) : 0;
+            const color = pct > 80 ? '#f85149' : pct > 50 ? '#d29922' : '#3fb950';
+            html += '<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>' + _esc(m.label) + '</span><span style="color:' + color + ';">' + pct.toFixed(0) + '%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + color + ';"></div></div></div>';
+          }
+          content.innerHTML = html || '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+        } catch (e) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">Error</div>'; badge.textContent = '!'; }
+      }
+      update_${props.id.replace(/-/g, '_')}();
+      setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 300) * 1000});
+    `
+  },
+
+  'amp-local': {
+    name: 'Amp (Local)',
+    icon: '⚡',
+    category: 'small',
+    description: 'Track Amp Code usage. Reads from local secrets file.',
+    defaultWidth: 280,
+    defaultHeight: 180,
+    hasApiKey: false,
+    properties: { title: 'Amp', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Free: 30%</div><div>Credits: $5.00</div></div>`,
+    generateHtml: (props) => `
+      <div class="dash-card" id="widget-${props.id}" style="height:100%;">
+        <div class="dash-card-head"><span class="dash-card-title">⚡ ${props.title || 'Amp'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div>
+        <div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div>
+      </div>`,
+    generateJs: (props) => `
+      async function update_${props.id.replace(/-/g, '_')}() {
+        const content = document.getElementById('${props.id}-content');
+        const badge = document.getElementById('${props.id}-badge');
+        try {
+          const res = await fetch('/api/ai-usage/amp');
+          const data = await res.json();
+          if (data.error) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">' + _esc(data.error) + '</div>'; badge.textContent = '!'; return; }
+          let html = '';
+          if (${props.showPlan !== false} && data.plan) badge.textContent = _esc(data.plan);
+          for (const m of (data.metrics || [])) {
+            if (m.format === 'dollars') {
+              const val = m.remaining != null ? '$' + m.remaining.toFixed(2) : '—';
+              html += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;"><span>' + _esc(m.label) + '</span><span style="color:#3fb950;">' + _esc(val) + '</span></div>';
+            } else {
+              const pct = m.used != null ? Math.min(100, Math.max(0, m.used)) : 0;
+              const color = pct > 80 ? '#f85149' : pct > 50 ? '#d29922' : '#3fb950';
+              html += '<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>' + _esc(m.label) + '</span><span style="color:' + color + ';">' + pct.toFixed(0) + '%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + color + ';"></div></div></div>';
+            }
+          }
+          content.innerHTML = html || '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+        } catch (e) { content.innerHTML = '<div style="color:#f85149;font-size:11px;">Error</div>'; badge.textContent = '!'; }
       }
       update_${props.id.replace(/-/g, '_')}();
       setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 300) * 1000});

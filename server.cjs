@@ -574,6 +574,31 @@ const AI_PROVIDERS = {
     ].filter(Boolean),
     keychainService: 'Codex Auth',
   },
+  copilot: {
+    name: 'GitHub Copilot',
+    icon: '⚫',
+    keychainService: 'gh:github.com',
+  },
+  cursor: {
+    name: 'Cursor',
+    icon: '🔵',
+    sqlitePath: path.join(os.homedir(), 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb'),
+  },
+  gemini: {
+    name: 'Gemini',
+    icon: '🔷',
+    credPaths: [
+      path.join(os.homedir(), '.gemini', 'oauth_creds.json'),
+    ],
+    settingsPath: path.join(os.homedir(), '.gemini', 'settings.json'),
+  },
+  amp: {
+    name: 'Amp',
+    icon: '⚡',
+    credPaths: [
+      path.join(os.homedir(), '.local', 'share', 'amp', 'secrets.json'),
+    ],
+  },
 };
 
 // Try to read credentials from file paths, then keychain (macOS)
@@ -871,10 +896,352 @@ async function fetchCodexUsage() {
   }
 }
 
+// Fetch GitHub Copilot usage
+async function fetchCopilotUsage() {
+  const baseInfo = {
+    provider: 'copilot',
+    name: AI_PROVIDERS.copilot.name,
+    icon: AI_PROVIDERS.copilot.icon,
+  };
+  
+  // Try to get token from gh CLI keychain
+  let token = null;
+  if (process.platform === 'darwin') {
+    try {
+      const { execSync } = require('child_process');
+      token = execSync('security find-generic-password -s "gh:github.com" -w 2>/dev/null', 
+        { encoding: 'utf8', timeout: 5000 }).trim();
+    } catch (e) {}
+  }
+  
+  if (!token) {
+    return { ...baseInfo, error: 'Not logged in. Run `gh auth login` first.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api.github.com/copilot_internal/user', {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/json',
+        'Editor-Version': 'vscode/1.96.2',
+        'Editor-Plugin-Version': 'copilot-chat/0.26.7',
+        'User-Agent': 'GitHubCopilotChat/0.26.7',
+        'X-Github-Api-Version': '2025-04-01',
+      },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Token invalid. Run `gh auth login` to re-auth.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    // Paid tier
+    if (data.quota_snapshots) {
+      if (data.quota_snapshots.premium_interactions) {
+        const p = data.quota_snapshots.premium_interactions;
+        metrics.push({
+          label: 'Premium',
+          used: 100 - p.percent_remaining,
+          limit: 100,
+          format: 'percent',
+          resetsAt: data.quota_reset_date,
+        });
+      }
+      if (data.quota_snapshots.chat) {
+        const c = data.quota_snapshots.chat;
+        metrics.push({
+          label: 'Chat',
+          used: 100 - c.percent_remaining,
+          limit: 100,
+          format: 'percent',
+          resetsAt: data.quota_reset_date,
+        });
+      }
+    }
+    
+    // Free tier
+    if (data.limited_user_quotas && data.monthly_quotas) {
+      const chatUsed = data.monthly_quotas.chat - data.limited_user_quotas.chat;
+      const compUsed = data.monthly_quotas.completions - data.limited_user_quotas.completions;
+      metrics.push({
+        label: 'Chat',
+        used: (chatUsed / data.monthly_quotas.chat) * 100,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.limited_user_reset_date,
+      });
+      metrics.push({
+        label: 'Completions',
+        used: (compUsed / data.monthly_quotas.completions) * 100,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.limited_user_reset_date,
+      });
+    }
+    
+    return {
+      ...baseInfo,
+      plan: data.copilot_plan || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Cursor usage
+async function fetchCursorUsage() {
+  const baseInfo = {
+    provider: 'cursor',
+    name: AI_PROVIDERS.cursor.name,
+    icon: AI_PROVIDERS.cursor.icon,
+  };
+  
+  const dbPath = AI_PROVIDERS.cursor.sqlitePath;
+  if (!fs.existsSync(dbPath)) {
+    return { ...baseInfo, error: 'Cursor not installed.' };
+  }
+  
+  // Read token from SQLite
+  let accessToken = null;
+  let membershipType = null;
+  try {
+    const { execSync } = require('child_process');
+    accessToken = execSync(`sqlite3 "${dbPath}" "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'" 2>/dev/null`,
+      { encoding: 'utf8', timeout: 5000 }).trim();
+    membershipType = execSync(`sqlite3 "${dbPath}" "SELECT value FROM ItemTable WHERE key = 'cursorAuth/stripeMembershipType'" 2>/dev/null`,
+      { encoding: 'utf8', timeout: 5000 }).trim();
+  } catch (e) {}
+  
+  if (!accessToken) {
+    return { ...baseInfo, error: 'Not logged in. Sign in to Cursor.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Connect-Protocol-Version': '1',
+      },
+      body: '{}',
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Re-sign in to Cursor.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    if (data.planUsage) {
+      const pu = data.planUsage;
+      if (typeof pu.totalPercentUsed === 'number' && isFinite(pu.totalPercentUsed)) {
+        metrics.push({
+          label: 'Total Usage',
+          used: pu.totalPercentUsed,
+          limit: 100,
+          format: 'percent',
+        });
+      }
+      if (typeof pu.autoPercentUsed === 'number' && isFinite(pu.autoPercentUsed)) {
+        metrics.push({
+          label: 'Auto',
+          used: pu.autoPercentUsed,
+          limit: 100,
+          format: 'percent',
+        });
+      }
+      if (typeof pu.apiPercentUsed === 'number' && isFinite(pu.apiPercentUsed)) {
+        metrics.push({
+          label: 'API',
+          used: pu.apiPercentUsed,
+          limit: 100,
+          format: 'percent',
+        });
+      }
+    }
+    
+    return {
+      ...baseInfo,
+      plan: membershipType || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Gemini usage
+async function fetchGeminiUsage() {
+  const baseInfo = {
+    provider: 'gemini',
+    name: AI_PROVIDERS.gemini.name,
+    icon: AI_PROVIDERS.gemini.icon,
+  };
+  
+  const credsPath = AI_PROVIDERS.gemini.credPaths[0];
+  if (!fs.existsSync(credsPath)) {
+    return { ...baseInfo, error: 'Not logged in. Run `gemini auth` first.' };
+  }
+  
+  let creds;
+  try {
+    creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+  } catch (e) {
+    return { ...baseInfo, error: 'Invalid credentials file.' };
+  }
+  
+  if (!creds.access_token) {
+    return { ...baseInfo, error: 'No access token found.' };
+  }
+  
+  try {
+    // Get user quota
+    const resp = await fetch('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${creds.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Run `gemini auth` to re-auth.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    // Parse quota buckets
+    if (data.quotaBuckets) {
+      for (const bucket of data.quotaBuckets) {
+        if (bucket.remaining !== undefined && bucket.limit !== undefined) {
+          const used = bucket.limit - bucket.remaining;
+          metrics.push({
+            label: bucket.model || bucket.name || 'Quota',
+            used: (used / bucket.limit) * 100,
+            limit: 100,
+            format: 'percent',
+          });
+        }
+      }
+    }
+    
+    return {
+      ...baseInfo,
+      plan: data.tier || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Amp usage
+async function fetchAmpUsage() {
+  const baseInfo = {
+    provider: 'amp',
+    name: AI_PROVIDERS.amp.name,
+    icon: AI_PROVIDERS.amp.icon,
+  };
+  
+  const secretsPath = AI_PROVIDERS.amp.credPaths[0];
+  if (!fs.existsSync(secretsPath)) {
+    return { ...baseInfo, error: 'Amp not installed. Install Amp Code to get started.' };
+  }
+  
+  let secrets;
+  try {
+    secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
+  } catch (e) {
+    return { ...baseInfo, error: 'Invalid secrets file.' };
+  }
+  
+  const apiKey = secrets['apiKey@https://ampcode.com/'];
+  if (!apiKey) {
+    return { ...baseInfo, error: 'Not logged in. Sign in to Amp Code.' };
+  }
+  
+  try {
+    const resp = await fetch('https://ampcode.com/api/internal', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ method: 'userDisplayBalanceInfo', params: {} }),
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Re-authenticate in Amp Code.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    // Parse displayText for usage info
+    const displayText = data.result?.displayText || data.displayText || '';
+    
+    // Free tier: "$X/$Y remaining"
+    const freeMatch = displayText.match(/\$(\d+(?:\.\d+)?)\s*\/\s*\$(\d+(?:\.\d+)?)\s+remaining/i);
+    if (freeMatch) {
+      const remaining = parseFloat(freeMatch[1]);
+      const total = parseFloat(freeMatch[2]);
+      const used = total - remaining;
+      metrics.push({
+        label: 'Free',
+        used: (used / total) * 100,
+        limit: 100,
+        format: 'percent',
+      });
+    }
+    
+    // Credits: "Individual credits: $X remaining"
+    const creditsMatch = displayText.match(/Individual credits:\s*\$(\d+(?:\.\d+)?)/i);
+    if (creditsMatch) {
+      metrics.push({
+        label: 'Credits',
+        used: null,
+        remaining: parseFloat(creditsMatch[1]),
+        format: 'dollars',
+      });
+    }
+    
+    return {
+      ...baseInfo,
+      plan: freeMatch ? 'Free' : (creditsMatch ? 'Credits' : 'unknown'),
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
 // Cache for AI usage data (avoid 429 rate limits)
 const aiUsageCache = {
   claude: { data: null, timestamp: 0 },
   codex: { data: null, timestamp: 0 },
+  copilot: { data: null, timestamp: 0 },
+  cursor: { data: null, timestamp: 0 },
+  gemini: { data: null, timestamp: 0 },
+  amp: { data: null, timestamp: 0 },
 };
 const AI_CACHE_TTL_MS = 300000; // 5 minutes cache
 
@@ -910,6 +1277,10 @@ async function getAllAiUsage(options = {}) {
   const results = await Promise.all([
     fetchWithCache('claude', fetchClaudeUsage),
     fetchWithCache('codex', fetchCodexUsage),
+    fetchWithCache('copilot', fetchCopilotUsage),
+    fetchWithCache('cursor', fetchCursorUsage),
+    fetchWithCache('gemini', fetchGeminiUsage),
+    fetchWithCache('amp', fetchAmpUsage),
   ]);
   
   return {
@@ -1338,10 +1709,22 @@ const server = http.createServer(async (req, res) => {
       let data;
       switch (provider) {
         case 'claude':
-          data = await fetchClaudeUsage();
+          data = await fetchWithCache('claude', fetchClaudeUsage);
           break;
         case 'codex':
-          data = await fetchCodexUsage();
+          data = await fetchWithCache('codex', fetchCodexUsage);
+          break;
+        case 'copilot':
+          data = await fetchWithCache('copilot', fetchCopilotUsage);
+          break;
+        case 'cursor':
+          data = await fetchWithCache('cursor', fetchCursorUsage);
+          break;
+        case 'gemini':
+          data = await fetchWithCache('gemini', fetchGeminiUsage);
+          break;
+        case 'amp':
+          data = await fetchWithCache('amp', fetchAmpUsage);
           break;
         default:
           return sendJson(res, 404, { status: 'error', message: `Unknown provider: ${provider}` });
