@@ -70,6 +70,7 @@ const WIDGET_ICONS = {
   'pages': { emoji: '📑', phosphor: 'files' },
   
   // AI / Monitoring
+  'ai-usage': { emoji: '🤖', phosphor: 'robot' },
   'ai-claude': { emoji: '🟣', phosphor: 'circle' },
   'ai-cost': { emoji: '💰', phosphor: 'currency-dollar' },
   'api-status': { emoji: '🔄', phosphor: 'arrows-clockwise' },
@@ -777,6 +778,133 @@ const WIDGETS = {
             '</div>';
           }).join('');
         } catch (e) { console.error('Today widget error:', e); }
+      }
+      update_${props.id.replace(/-/g, '_')}();
+      setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 60) * 1000});
+    `
+  },
+
+  'ai-usage': {
+    privacyWarning: true,
+    name: 'AI Usage',
+    icon: '🤖',
+    category: 'large',
+    description: 'Track usage across AI coding tools (Claude Code, Codex CLI, etc). Reads local credentials.',
+    defaultWidth: 350,
+    defaultHeight: 280,
+    hasApiKey: false,
+    properties: {
+      title: 'AI Usage',
+      providers: 'all',
+      showPlan: true,
+      compactMode: false,
+      refreshInterval: 60
+    },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;">
+      <div>🟣 Claude — 25% session</div>
+      <div>🟢 Codex — 12% weekly</div>
+    </div>`,
+    generateHtml: (props) => `
+      <div class="dash-card" id="widget-${props.id}" style="height:100%;">
+        <div class="dash-card-head">
+          <span class="dash-card-title">${renderIcon('tokens')} ${props.title || 'AI Usage'}</span>
+          <span class="dash-card-badge" id="${props.id}-badge">—</span>
+        </div>
+        <div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:8px;overflow-y:auto;">
+          <div style="color:var(--text-muted);font-size:11px;">Loading...</div>
+        </div>
+      </div>`,
+    generateJs: (props) => `
+      // AI Usage Widget: ${props.id}
+      async function update_${props.id.replace(/-/g, '_')}() {
+        const content = document.getElementById('${props.id}-content');
+        const badge = document.getElementById('${props.id}-badge');
+        try {
+          const providers = '${props.providers || 'all'}';
+          const url = providers === 'all' ? '/api/ai-usage' : '/api/ai-usage/' + providers;
+          const res = await fetch(url);
+          const json = await res.json();
+          
+          if (json.status !== 'ok') {
+            content.innerHTML = '<div style="color:#f85149;font-size:12px;">' + _esc(json.message || 'Error') + '</div>';
+            badge.textContent = '!';
+            return;
+          }
+          
+          const allProviders = json.providers || [json];
+          const validProviders = allProviders.filter(p => !p.error);
+          const errorProviders = allProviders.filter(p => p.error);
+          
+          badge.textContent = validProviders.length + '/' + allProviders.length;
+          
+          let html = '';
+          const compact = ${props.compactMode || false};
+          const showPlan = ${props.showPlan !== false};
+          
+          for (const prov of allProviders) {
+            const icon = _esc(prov.icon || '⚪');
+            const name = _esc(prov.name || prov.provider || 'Unknown');
+            
+            if (prov.error) {
+              html += '<div style="padding:6px 0;border-bottom:1px solid var(--border,#30363d);">';
+              html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
+              html += '<span style="font-size:16px;">' + icon + '</span>';
+              html += '<span style="font-weight:500;font-size:13px;">' + name + '</span>';
+              html += '</div>';
+              html += '<div style="color:#f85149;font-size:11px;padding-left:22px;">' + _esc(prov.error) + '</div>';
+              html += '</div>';
+              continue;
+            }
+            
+            html += '<div style="padding:6px 0;border-bottom:1px solid var(--border,#30363d);">';
+            html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:' + (compact ? '2px' : '6px') + ';">';
+            html += '<span style="font-size:16px;">' + icon + '</span>';
+            html += '<span style="font-weight:500;font-size:13px;">' + name + '</span>';
+            if (showPlan && prov.plan) {
+              html += '<span style="font-size:10px;color:var(--text-muted);background:var(--bg-secondary);padding:1px 6px;border-radius:4px;margin-left:auto;">' + _esc(prov.plan) + '</span>';
+            }
+            html += '</div>';
+            
+            if (prov.metrics && prov.metrics.length) {
+              for (const m of prov.metrics) {
+                const label = _esc(m.label);
+                const pct = m.used != null ? Math.min(100, Math.max(0, m.used)) : 0;
+                const color = pct > 80 ? '#f85149' : pct > 50 ? '#d29922' : '#3fb950';
+                
+                if (m.format === 'dollars') {
+                  const val = m.remaining != null ? '$' + m.remaining.toFixed(2) : (m.used != null ? '$' + m.used.toFixed(2) + ' used' : '—');
+                  html += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0 2px 22px;">';
+                  html += '<span style="color:var(--text-secondary);">' + label + '</span>';
+                  html += '<span style="color:' + (m.remaining != null ? '#3fb950' : 'var(--text-primary)') + ';">' + _esc(val) + '</span>';
+                  html += '</div>';
+                } else {
+                  // Percentage progress bar
+                  html += '<div style="padding:2px 0 2px 22px;">';
+                  if (!compact) {
+                    html += '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">';
+                    html += '<span style="color:var(--text-secondary);">' + label + '</span>';
+                    html += '<span style="color:' + color + ';">' + pct.toFixed(0) + '%</span>';
+                    html += '</div>';
+                  }
+                  html += '<div style="height:' + (compact ? '4px' : '6px') + ';background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;">';
+                  html += '<div style="width:' + pct + '%;height:100%;background:' + color + ';transition:width 0.3s;"></div>';
+                  html += '</div>';
+                  if (compact) {
+                    html += '<div style="font-size:9px;color:var(--text-muted);margin-top:1px;">' + label + ' ' + pct.toFixed(0) + '%</div>';
+                  }
+                  html += '</div>';
+                }
+              }
+            }
+            html += '</div>';
+          }
+          
+          content.innerHTML = html || '<div style="color:var(--text-muted);font-size:11px;">No providers configured</div>';
+        } catch (e) {
+          console.error('AI Usage widget error:', e);
+          content.innerHTML = '<div style="color:#f85149;font-size:12px;">Error loading usage data</div>';
+          badge.textContent = '!';
+        }
       }
       update_${props.id.replace(/-/g, '_')}();
       setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 60) * 1000});

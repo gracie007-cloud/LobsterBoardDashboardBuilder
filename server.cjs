@@ -551,6 +551,307 @@ function parseIcal(text, maxEvents) {
   return events.slice(0, maxEvents);
 }
 
+// ─────────────────────────────────────────────
+// AI Usage Providers - Read local credentials and fetch usage
+// ─────────────────────────────────────────────
+
+const AI_PROVIDERS = {
+  claude: {
+    name: 'Claude Code',
+    icon: '🟣',
+    credPaths: [
+      path.join(os.homedir(), '.claude', '.credentials.json'),
+    ],
+    keychainService: 'Claude Code-credentials',
+  },
+  codex: {
+    name: 'Codex CLI',
+    icon: '🟢',
+    credPaths: [
+      process.env.CODEX_HOME ? path.join(process.env.CODEX_HOME, 'auth.json') : null,
+      path.join(os.homedir(), '.config', 'codex', 'auth.json'),
+      path.join(os.homedir(), '.codex', 'auth.json'),
+    ].filter(Boolean),
+    keychainService: 'Codex Auth',
+  },
+};
+
+// Try to read credentials from file paths, then keychain (macOS)
+function readCredentials(provider) {
+  const config = AI_PROVIDERS[provider];
+  if (!config) return null;
+  
+  // Try file paths first
+  for (const credPath of config.credPaths) {
+    try {
+      if (fs.existsSync(credPath)) {
+        const content = fs.readFileSync(credPath, 'utf8');
+        return { source: 'file', path: credPath, data: JSON.parse(content) };
+      }
+    } catch (e) {
+      // Continue to next path
+    }
+  }
+  
+  // Try macOS keychain
+  if (process.platform === 'darwin' && config.keychainService) {
+    try {
+      const { execSync } = require('child_process');
+      const keychainData = execSync(
+        `security find-generic-password -s "${config.keychainService}" -w 2>/dev/null`,
+        { encoding: 'utf8', timeout: 5000 }
+      ).trim();
+      if (keychainData) {
+        return { source: 'keychain', service: config.keychainService, data: JSON.parse(keychainData) };
+      }
+    } catch (e) {
+      // Keychain access failed or not found
+    }
+  }
+  
+  return null;
+}
+
+// Fetch Claude usage
+async function fetchClaudeUsage() {
+  const creds = readCredentials('claude');
+  if (!creds) return { error: 'Not logged in. Run `claude` to authenticate.' };
+  
+  const oauthData = creds.data.claudeAiOauth;
+  if (!oauthData?.accessToken) return { error: 'No access token found.' };
+  
+  let accessToken = oauthData.accessToken;
+  
+  // Helper to make the API request
+  async function makeRequest(token) {
+    const resp = await fetch('https://api.anthropic.com/api/oauth/usage', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'anthropic-beta': 'oauth-2025-04-20',
+      },
+    });
+    return resp;
+  }
+  
+  // Try with current token first
+  let resp = await makeRequest(accessToken);
+  
+  // If unauthorized, try to refresh
+  if (resp.status === 401 || resp.status === 403) {
+    if (!oauthData.refreshToken) {
+      return { error: 'Session expired. Run `claude` to re-authenticate.' };
+    }
+    try {
+      const refreshed = await refreshClaudeToken(oauthData.refreshToken, creds.source === 'file' ? creds.path : null);
+      if (refreshed.error) {
+        return { error: 'Session expired. Run `claude` to re-authenticate.' };
+      }
+      accessToken = refreshed.accessToken;
+      resp = await makeRequest(accessToken);
+    } catch (e) {
+      return { error: 'Session expired. Run `claude` to re-authenticate.' };
+    }
+  }
+  
+  try {
+    if (!resp.ok) {
+      return { error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    
+    // Normalize response
+    const metrics = [];
+    
+    if (data.five_hour) {
+      metrics.push({
+        label: 'Session (5h)',
+        used: data.five_hour.utilization,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.five_hour.resets_at,
+      });
+    }
+    
+    if (data.seven_day) {
+      metrics.push({
+        label: 'Weekly',
+        used: data.seven_day.utilization,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.seven_day.resets_at,
+      });
+    }
+    
+    if (data.seven_day_opus) {
+      metrics.push({
+        label: 'Opus Weekly',
+        used: data.seven_day_opus.utilization,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.seven_day_opus.resets_at,
+      });
+    }
+    
+    if (data.extra_usage?.is_enabled) {
+      metrics.push({
+        label: 'Extra Credits',
+        used: data.extra_usage.used_credits / 100,
+        limit: data.extra_usage.monthly_limit ? data.extra_usage.monthly_limit / 100 : null,
+        format: 'dollars',
+      });
+    }
+    
+    return {
+      provider: 'claude',
+      name: AI_PROVIDERS.claude.name,
+      icon: AI_PROVIDERS.claude.icon,
+      plan: oauthData.subscriptionType || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { error: 'Network error: ' + e.message };
+  }
+}
+
+// Refresh Claude token
+async function refreshClaudeToken(refreshToken, credPath) {
+  try {
+    const resp = await fetch('https://platform.claude.com/v1/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+        scope: 'user:profile user:inference user:sessions:claude_code user:mcp_servers',
+      }),
+    });
+    
+    if (!resp.ok) return { error: 'Refresh failed (HTTP ' + resp.status + ')' };
+    
+    const data = await resp.json();
+    
+    // Update credentials file
+    if (credPath && fs.existsSync(credPath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(credPath, 'utf8'));
+        existing.claudeAiOauth.accessToken = data.access_token;
+        if (data.refresh_token) existing.claudeAiOauth.refreshToken = data.refresh_token;
+        existing.claudeAiOauth.expiresAt = Date.now() + (data.expires_in * 1000);
+        fs.writeFileSync(credPath, JSON.stringify(existing, null, 2));
+      } catch (e) {
+        // Non-fatal: token still works for this request
+      }
+    }
+    
+    return { accessToken: data.access_token };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// Fetch Codex usage
+async function fetchCodexUsage() {
+  const creds = readCredentials('codex');
+  if (!creds) return { error: 'Not logged in. Run `codex auth` to authenticate.' };
+  
+  const tokens = creds.data.tokens;
+  if (!tokens?.access_token) return { error: 'No access token found.' };
+  
+  try {
+    const headers = {
+      'Authorization': `Bearer ${tokens.access_token}`,
+      'Accept': 'application/json',
+    };
+    if (tokens.account_id) {
+      headers['ChatGPT-Account-Id'] = tokens.account_id;
+    }
+    
+    const resp = await fetch('https://chatgpt.com/backend-api/wham/usage', { headers });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { error: 'Session expired. Run `codex auth` to re-authenticate.' };
+      }
+      return { error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    
+    // Normalize response
+    const metrics = [];
+    
+    if (data.rate_limit?.primary_window) {
+      const pw = data.rate_limit.primary_window;
+      metrics.push({
+        label: 'Session (5h)',
+        used: pw.used_percent,
+        limit: 100,
+        format: 'percent',
+        resetsAt: pw.reset_at ? new Date(pw.reset_at * 1000).toISOString() : null,
+      });
+    }
+    
+    if (data.rate_limit?.secondary_window) {
+      const sw = data.rate_limit.secondary_window;
+      metrics.push({
+        label: 'Weekly',
+        used: sw.used_percent,
+        limit: 100,
+        format: 'percent',
+        resetsAt: sw.reset_at ? new Date(sw.reset_at * 1000).toISOString() : null,
+      });
+    }
+    
+    if (data.code_review_rate_limit?.primary_window) {
+      const cr = data.code_review_rate_limit.primary_window;
+      metrics.push({
+        label: 'Code Reviews',
+        used: cr.used_percent,
+        limit: 100,
+        format: 'percent',
+        resetsAt: cr.reset_at ? new Date(cr.reset_at * 1000).toISOString() : null,
+      });
+    }
+    
+    if (data.credits?.has_credits) {
+      metrics.push({
+        label: 'Credits',
+        used: null,
+        remaining: data.credits.balance,
+        format: 'dollars',
+        unlimited: data.credits.unlimited,
+      });
+    }
+    
+    return {
+      provider: 'codex',
+      name: AI_PROVIDERS.codex.name,
+      icon: AI_PROVIDERS.codex.icon,
+      plan: data.plan_type || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { error: 'Network error: ' + e.message };
+  }
+}
+
+// Get all AI usage data
+async function getAllAiUsage() {
+  const results = await Promise.all([
+    fetchClaudeUsage(),
+    fetchCodexUsage(),
+  ]);
+  
+  return {
+    providers: results,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
   const pathname = parsedUrl.pathname;
@@ -950,6 +1251,40 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+  }
+
+  // GET /api/ai-usage - Fetch usage from all configured AI providers
+  if (req.method === 'GET' && pathname === '/api/ai-usage') {
+    try {
+      const data = await getAllAiUsage();
+      sendJson(res, 200, { status: 'ok', ...data });
+    } catch (e) {
+      sendError(res, e.message);
+    }
+    return;
+  }
+
+  // GET /api/ai-usage/:provider - Fetch usage from a specific provider
+  const aiUsageMatch = pathname.match(/^\/api\/ai-usage\/(\w+)$/);
+  if (req.method === 'GET' && aiUsageMatch) {
+    const provider = aiUsageMatch[1];
+    try {
+      let data;
+      switch (provider) {
+        case 'claude':
+          data = await fetchClaudeUsage();
+          break;
+        case 'codex':
+          data = await fetchCodexUsage();
+          break;
+        default:
+          return sendJson(res, 404, { status: 'error', message: `Unknown provider: ${provider}` });
+      }
+      sendJson(res, 200, { status: 'ok', ...data });
+    } catch (e) {
+      sendError(res, e.message);
+    }
+    return;
   }
 
   // GET /api/cron - Read cron jobs from OpenClaw cron store
