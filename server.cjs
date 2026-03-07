@@ -599,6 +599,37 @@ const AI_PROVIDERS = {
       path.join(os.homedir(), '.local', 'share', 'amp', 'secrets.json'),
     ],
   },
+  factory: {
+    name: 'Factory',
+    icon: '🏭',
+    credPaths: [
+      path.join(os.homedir(), '.factory', 'auth.json'),
+    ],
+  },
+  kimi: {
+    name: 'Kimi Code',
+    icon: '🌙',
+    credPaths: [
+      path.join(os.homedir(), '.kimi', 'credentials', 'kimi-code.json'),
+    ],
+  },
+  jetbrains: {
+    name: 'JetBrains AI',
+    icon: '🧠',
+    configDirs: [
+      path.join(os.homedir(), 'Library', 'Application Support', 'JetBrains'),
+    ],
+  },
+  minimax: {
+    name: 'MiniMax',
+    icon: '🔶',
+    envKeys: ['MINIMAX_API_KEY', 'MINIMAX_CN_API_KEY', 'MINIMAX_API_TOKEN'],
+  },
+  zai: {
+    name: 'Z.ai',
+    icon: '🇿',
+    envKeys: ['ZAI_API_KEY', 'GLM_API_KEY'],
+  },
 };
 
 // Try to read credentials from file paths, then keychain (macOS)
@@ -1234,6 +1265,201 @@ async function fetchAmpUsage() {
   }
 }
 
+// Fetch Factory (Droid) usage
+async function fetchFactoryUsage() {
+  const baseInfo = { provider: 'factory', name: AI_PROVIDERS.factory.name, icon: AI_PROVIDERS.factory.icon };
+  const authPath = AI_PROVIDERS.factory.credPaths[0];
+  
+  if (!fs.existsSync(authPath)) {
+    return { ...baseInfo, error: 'Not logged in. Run `droid` to authenticate.' };
+  }
+  
+  let auth;
+  try { auth = JSON.parse(fs.readFileSync(authPath, 'utf8')); } 
+  catch (e) { return { ...baseInfo, error: 'Invalid auth file.' }; }
+  
+  if (!auth.access_token) return { ...baseInfo, error: 'No access token found.' };
+  
+  try {
+    const resp = await fetch('https://api.factory.ai/api/organization/subscription/usage', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${auth.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ useCache: true }),
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Session expired. Run `droid` to re-auth.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    if (data.usage?.standard) {
+      const s = data.usage.standard;
+      metrics.push({ label: 'Standard', used: (s.usedRatio || 0) * 100, limit: 100, format: 'percent' });
+    }
+    if (data.usage?.premium?.totalAllowance > 0) {
+      const p = data.usage.premium;
+      metrics.push({ label: 'Premium', used: (p.usedRatio || 0) * 100, limit: 100, format: 'percent' });
+    }
+    
+    const allowance = data.usage?.standard?.totalAllowance || 0;
+    const plan = allowance >= 200000000 ? 'Max' : allowance >= 20000000 ? 'Pro' : 'Basic';
+    
+    return { ...baseInfo, plan, metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+// Fetch Kimi Code usage
+async function fetchKimiUsage() {
+  const baseInfo = { provider: 'kimi', name: AI_PROVIDERS.kimi.name, icon: AI_PROVIDERS.kimi.icon };
+  const credPath = AI_PROVIDERS.kimi.credPaths[0];
+  
+  if (!fs.existsSync(credPath)) {
+    return { ...baseInfo, error: 'Not logged in. Run `kimi login` first.' };
+  }
+  
+  let creds;
+  try { creds = JSON.parse(fs.readFileSync(credPath, 'utf8')); }
+  catch (e) { return { ...baseInfo, error: 'Invalid credentials file.' }; }
+  
+  if (!creds.access_token) return { ...baseInfo, error: 'No access token found.' };
+  
+  try {
+    const resp = await fetch('https://api.kimi.com/coding/v1/usages', {
+      headers: { 'Authorization': `Bearer ${creds.access_token}`, 'Accept': 'application/json' },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Session expired. Run `kimi login` to re-auth.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    if (data.usage) {
+      const used = parseInt(data.usage.limit) - parseInt(data.usage.remaining);
+      const total = parseInt(data.usage.limit);
+      metrics.push({ label: 'Session', used: (used / total) * 100, limit: 100, format: 'percent', resetsAt: data.usage.resetTime });
+    }
+    
+    const plan = data.user?.membership?.level?.replace('LEVEL_', '') || 'unknown';
+    return { ...baseInfo, plan, metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+// Fetch JetBrains AI usage
+async function fetchJetbrainsUsage() {
+  const baseInfo = { provider: 'jetbrains', name: AI_PROVIDERS.jetbrains.name, icon: AI_PROVIDERS.jetbrains.icon };
+  const configDir = AI_PROVIDERS.jetbrains.configDirs[0];
+  
+  if (!fs.existsSync(configDir)) {
+    return { ...baseInfo, error: 'JetBrains IDE not detected.' };
+  }
+  
+  // Find latest IDE config with quota file
+  let quotaData = null;
+  try {
+    const dirs = fs.readdirSync(configDir).filter(d => !d.startsWith('.'));
+    for (const dir of dirs.sort().reverse()) {
+      const quotaPath = path.join(configDir, dir, 'options', 'AIAssistantQuotaManager2.xml');
+      if (fs.existsSync(quotaPath)) {
+        const content = fs.readFileSync(quotaPath, 'utf8');
+        // Simple XML parsing for quota values
+        const currentMatch = content.match(/<option name="current" value="(\d+)"/);
+        const maxMatch = content.match(/<option name="maximum" value="(\d+)"/);
+        if (currentMatch && maxMatch) {
+          quotaData = { current: parseInt(currentMatch[1]), maximum: parseInt(maxMatch[1]) };
+          break;
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
+  
+  if (!quotaData) {
+    return { ...baseInfo, error: 'JetBrains AI quota not found. Open AI Assistant in IDE.' };
+  }
+  
+  const used = (quotaData.current / quotaData.maximum) * 100;
+  return { ...baseInfo, plan: 'AI Assistant', metrics: [{ label: 'Quota', used, limit: 100, format: 'percent' }] };
+}
+
+// Fetch MiniMax usage
+async function fetchMinimaxUsage() {
+  const baseInfo = { provider: 'minimax', name: AI_PROVIDERS.minimax.name, icon: AI_PROVIDERS.minimax.icon };
+  
+  const apiKey = process.env.MINIMAX_API_KEY || process.env.MINIMAX_CN_API_KEY || process.env.MINIMAX_API_TOKEN;
+  if (!apiKey) {
+    return { ...baseInfo, error: 'Set MINIMAX_API_KEY environment variable.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api.minimax.io/v1/api/openplatform/coding_plan/remains', {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Invalid API key.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    if (data.base_resp?.status_code !== 0) {
+      return { ...baseInfo, error: data.base_resp?.status_msg || 'API error' };
+    }
+    
+    const metrics = [];
+    const model = data.model_remains?.[0];
+    if (model) {
+      const total = model.current_interval_total_count || 100;
+      const remaining = model.current_interval_usage_count || model.current_interval_remaining_count || 0;
+      const used = ((total - remaining) / total) * 100;
+      metrics.push({ label: 'Session', used, limit: 100, format: 'percent' });
+    }
+    
+    return { ...baseInfo, plan: data.current_subscribe_title || 'MiniMax', metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+// Fetch Z.ai usage
+async function fetchZaiUsage() {
+  const baseInfo = { provider: 'zai', name: AI_PROVIDERS.zai.name, icon: AI_PROVIDERS.zai.icon };
+  
+  const apiKey = process.env.ZAI_API_KEY || process.env.GLM_API_KEY;
+  if (!apiKey) {
+    return { ...baseInfo, error: 'Set ZAI_API_KEY environment variable.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api.z.ai/api/monitor/usage/quota/limit', {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Invalid API key.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    if (data.code !== 200) {
+      return { ...baseInfo, error: data.message || 'API error' };
+    }
+    
+    const metrics = [];
+    for (const limit of (data.data?.limits || [])) {
+      if (limit.type === 'TOKENS_LIMIT') {
+        metrics.push({ label: 'Session', used: limit.percentage || 0, limit: 100, format: 'percent' });
+      } else if (limit.type === 'TIME_LIMIT') {
+        metrics.push({ label: 'Weekly', used: limit.percentage || 0, limit: 100, format: 'percent' });
+      }
+    }
+    
+    return { ...baseInfo, plan: 'GLM Coding', metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
 // Cache for AI usage data (avoid 429 rate limits)
 const aiUsageCache = {
   claude: { data: null, timestamp: 0 },
@@ -1241,6 +1467,11 @@ const aiUsageCache = {
   copilot: { data: null, timestamp: 0 },
   cursor: { data: null, timestamp: 0 },
   gemini: { data: null, timestamp: 0 },
+  factory: { data: null, timestamp: 0 },
+  kimi: { data: null, timestamp: 0 },
+  jetbrains: { data: null, timestamp: 0 },
+  minimax: { data: null, timestamp: 0 },
+  zai: { data: null, timestamp: 0 },
   amp: { data: null, timestamp: 0 },
 };
 const AI_CACHE_TTL_MS = 300000; // 5 minutes cache
@@ -1281,6 +1512,11 @@ async function getAllAiUsage(options = {}) {
     fetchWithCache('cursor', fetchCursorUsage),
     fetchWithCache('gemini', fetchGeminiUsage),
     fetchWithCache('amp', fetchAmpUsage),
+    fetchWithCache('factory', fetchFactoryUsage),
+    fetchWithCache('kimi', fetchKimiUsage),
+    fetchWithCache('jetbrains', fetchJetbrainsUsage),
+    fetchWithCache('minimax', fetchMinimaxUsage),
+    fetchWithCache('zai', fetchZaiUsage),
   ]);
   
   return {
@@ -1725,6 +1961,21 @@ const server = http.createServer(async (req, res) => {
           break;
         case 'amp':
           data = await fetchWithCache('amp', fetchAmpUsage);
+          break;
+        case 'factory':
+          data = await fetchWithCache('factory', fetchFactoryUsage);
+          break;
+        case 'kimi':
+          data = await fetchWithCache('kimi', fetchKimiUsage);
+          break;
+        case 'jetbrains':
+          data = await fetchWithCache('jetbrains', fetchJetbrainsUsage);
+          break;
+        case 'minimax':
+          data = await fetchWithCache('minimax', fetchMinimaxUsage);
+          break;
+        case 'zai':
+          data = await fetchWithCache('zai', fetchZaiUsage);
           break;
         default:
           return sendJson(res, 404, { status: 'error', message: `Unknown provider: ${provider}` });

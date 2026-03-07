@@ -77,6 +77,11 @@ const WIDGET_ICONS = {
   'cursor': { emoji: '🔵', phosphor: 'circle' },
   'gemini-cli': { emoji: '🔷', phosphor: 'diamond' },
   'amp-code': { emoji: '⚡', phosphor: 'lightning' },
+  'factory': { emoji: '🏭', phosphor: 'factory' },
+  'kimi-code': { emoji: '🌙', phosphor: 'moon' },
+  'jetbrains-ai': { emoji: '🧠', phosphor: 'brain' },
+  'minimax': { emoji: '🔶', phosphor: 'diamond' },
+  'zai': { emoji: '🇿', phosphor: 'sparkle' },
   'ai-claude': { emoji: '🟣', phosphor: 'circle' },
   'ai-cost': { emoji: '💰', phosphor: 'currency-dollar' },
   'api-status': { emoji: '🔄', phosphor: 'arrows-clockwise' },
@@ -1227,6 +1232,66 @@ const WIDGETS = {
       update_${props.id.replace(/-/g, '_')}();
       setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 300) * 1000});
     `
+  },
+
+  'factory': {
+    name: 'Factory',
+    icon: '🏭',
+    category: 'small',
+    description: 'Track Factory (Droid) usage. Reads from local auth file.',
+    defaultWidth: 280, defaultHeight: 180, hasApiKey: false,
+    properties: { title: 'Factory', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Standard: 25%</div></div>`,
+    generateHtml: (props) => `<div class="dash-card" id="widget-${props.id}" style="height:100%;"><div class="dash-card-head"><span class="dash-card-title">🏭 ${props.title || 'Factory'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div><div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div></div>`,
+    generateJs: (props) => `async function update_${props.id.replace(/-/g, '_')}(){const content=document.getElementById('${props.id}-content');const badge=document.getElementById('${props.id}-badge');try{const res=await fetch('/api/ai-usage/factory');const data=await res.json();if(data.error){content.innerHTML='<div style="color:#f85149;font-size:11px;">'+_esc(data.error)+'</div>';badge.textContent='!';return;}let html='';if(${props.showPlan !== false}&&data.plan)badge.textContent=_esc(data.plan);for(const m of(data.metrics||[])){const pct=m.used!=null?Math.min(100,Math.max(0,m.used)):0;const color=pct>80?'#f85149':pct>50?'#d29922':'#3fb950';html+='<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>'+_esc(m.label)+'</span><span style="color:'+color+';">'+pct.toFixed(0)+'%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+color+';"></div></div></div>';}content.innerHTML=html||'<div style="color:var(--text-muted);font-size:11px;">No data</div>';}catch(e){content.innerHTML='<div style="color:#f85149;font-size:11px;">Error</div>';badge.textContent='!';}}update_${props.id.replace(/-/g, '_')}();setInterval(update_${props.id.replace(/-/g, '_')},${(props.refreshInterval||300)*1000});`
+  },
+
+  'kimi-code': {
+    name: 'Kimi Code',
+    icon: '🌙',
+    category: 'small',
+    description: 'Track Kimi Code usage. Reads from local credentials.',
+    defaultWidth: 280, defaultHeight: 180, hasApiKey: false,
+    properties: { title: 'Kimi', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Session: 26%</div></div>`,
+    generateHtml: (props) => `<div class="dash-card" id="widget-${props.id}" style="height:100%;"><div class="dash-card-head"><span class="dash-card-title">🌙 ${props.title || 'Kimi'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div><div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div></div>`,
+    generateJs: (props) => `async function update_${props.id.replace(/-/g, '_')}(){const content=document.getElementById('${props.id}-content');const badge=document.getElementById('${props.id}-badge');try{const res=await fetch('/api/ai-usage/kimi');const data=await res.json();if(data.error){content.innerHTML='<div style="color:#f85149;font-size:11px;">'+_esc(data.error)+'</div>';badge.textContent='!';return;}let html='';if(${props.showPlan !== false}&&data.plan)badge.textContent=_esc(data.plan);for(const m of(data.metrics||[])){const pct=m.used!=null?Math.min(100,Math.max(0,m.used)):0;const color=pct>80?'#f85149':pct>50?'#d29922':'#3fb950';html+='<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>'+_esc(m.label)+'</span><span style="color:'+color+';">'+pct.toFixed(0)+'%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+color+';"></div></div></div>';}content.innerHTML=html||'<div style="color:var(--text-muted);font-size:11px;">No data</div>';}catch(e){content.innerHTML='<div style="color:#f85149;font-size:11px;">Error</div>';badge.textContent='!';}}update_${props.id.replace(/-/g, '_')}();setInterval(update_${props.id.replace(/-/g, '_')},${(props.refreshInterval||300)*1000});`
+  },
+
+  'jetbrains-ai': {
+    name: 'JetBrains AI',
+    icon: '🧠',
+    category: 'small',
+    description: 'Track JetBrains AI Assistant usage. Reads from IDE config.',
+    defaultWidth: 280, defaultHeight: 180, hasApiKey: false,
+    properties: { title: 'JetBrains', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Quota: 15%</div></div>`,
+    generateHtml: (props) => `<div class="dash-card" id="widget-${props.id}" style="height:100%;"><div class="dash-card-head"><span class="dash-card-title">🧠 ${props.title || 'JetBrains'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div><div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div></div>`,
+    generateJs: (props) => `async function update_${props.id.replace(/-/g, '_')}(){const content=document.getElementById('${props.id}-content');const badge=document.getElementById('${props.id}-badge');try{const res=await fetch('/api/ai-usage/jetbrains');const data=await res.json();if(data.error){content.innerHTML='<div style="color:#f85149;font-size:11px;">'+_esc(data.error)+'</div>';badge.textContent='!';return;}let html='';if(${props.showPlan !== false}&&data.plan)badge.textContent=_esc(data.plan);for(const m of(data.metrics||[])){const pct=m.used!=null?Math.min(100,Math.max(0,m.used)):0;const color=pct>80?'#f85149':pct>50?'#d29922':'#3fb950';html+='<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>'+_esc(m.label)+'</span><span style="color:'+color+';">'+pct.toFixed(0)+'%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+color+';"></div></div></div>';}content.innerHTML=html||'<div style="color:var(--text-muted);font-size:11px;">No data</div>';}catch(e){content.innerHTML='<div style="color:#f85149;font-size:11px;">Error</div>';badge.textContent='!';}}update_${props.id.replace(/-/g, '_')}();setInterval(update_${props.id.replace(/-/g, '_')},${(props.refreshInterval||300)*1000});`
+  },
+
+  'minimax': {
+    name: 'MiniMax',
+    icon: '🔶',
+    category: 'small',
+    description: 'Track MiniMax Coding usage. Requires MINIMAX_API_KEY env var.',
+    defaultWidth: 280, defaultHeight: 180, hasApiKey: false,
+    properties: { title: 'MiniMax', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Session: 30%</div></div>`,
+    generateHtml: (props) => `<div class="dash-card" id="widget-${props.id}" style="height:100%;"><div class="dash-card-head"><span class="dash-card-title">🔶 ${props.title || 'MiniMax'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div><div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div></div>`,
+    generateJs: (props) => `async function update_${props.id.replace(/-/g, '_')}(){const content=document.getElementById('${props.id}-content');const badge=document.getElementById('${props.id}-badge');try{const res=await fetch('/api/ai-usage/minimax');const data=await res.json();if(data.error){content.innerHTML='<div style="color:#f85149;font-size:11px;">'+_esc(data.error)+'</div>';badge.textContent='!';return;}let html='';if(${props.showPlan !== false}&&data.plan)badge.textContent=_esc(data.plan);for(const m of(data.metrics||[])){const pct=m.used!=null?Math.min(100,Math.max(0,m.used)):0;const color=pct>80?'#f85149':pct>50?'#d29922':'#3fb950';html+='<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>'+_esc(m.label)+'</span><span style="color:'+color+';">'+pct.toFixed(0)+'%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+color+';"></div></div></div>';}content.innerHTML=html||'<div style="color:var(--text-muted);font-size:11px;">No data</div>';}catch(e){content.innerHTML='<div style="color:#f85149;font-size:11px;">Error</div>';badge.textContent='!';}}update_${props.id.replace(/-/g, '_')}();setInterval(update_${props.id.replace(/-/g, '_')},${(props.refreshInterval||300)*1000});`
+  },
+
+  'zai': {
+    name: 'Z.ai',
+    icon: '🇿',
+    category: 'small',
+    description: 'Track Z.ai (GLM Coding) usage. Requires ZAI_API_KEY env var.',
+    defaultWidth: 280, defaultHeight: 180, hasApiKey: false,
+    properties: { title: 'Z.ai', showPlan: true, refreshInterval: 300 },
+    preview: `<div style="padding:4px;font-size:11px;color:#8b949e;"><div>Session: 15%</div><div>Weekly: 45%</div></div>`,
+    generateHtml: (props) => `<div class="dash-card" id="widget-${props.id}" style="height:100%;"><div class="dash-card-head"><span class="dash-card-title">🇿 ${props.title || 'Z.ai'}</span><span class="dash-card-badge" id="${props.id}-badge">—</span></div><div class="dash-card-body" id="${props.id}-content" style="display:flex;flex-direction:column;gap:4px;overflow-y:auto;"><div style="color:var(--text-muted);font-size:11px;">Loading...</div></div></div>`,
+    generateJs: (props) => `async function update_${props.id.replace(/-/g, '_')}(){const content=document.getElementById('${props.id}-content');const badge=document.getElementById('${props.id}-badge');try{const res=await fetch('/api/ai-usage/zai');const data=await res.json();if(data.error){content.innerHTML='<div style="color:#f85149;font-size:11px;">'+_esc(data.error)+'</div>';badge.textContent='!';return;}let html='';if(${props.showPlan !== false}&&data.plan)badge.textContent=_esc(data.plan);for(const m of(data.metrics||[])){const pct=m.used!=null?Math.min(100,Math.max(0,m.used)):0;const color=pct>80?'#f85149':pct>50?'#d29922':'#3fb950';html+='<div style="margin-bottom:4px;"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;"><span>'+_esc(m.label)+'</span><span style="color:'+color+';">'+pct.toFixed(0)+'%</span></div><div style="height:6px;background:var(--bg-tertiary,#21262d);border-radius:3px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+color+';"></div></div></div>';}content.innerHTML=html||'<div style="color:var(--text-muted);font-size:11px;">No data</div>';}catch(e){content.innerHTML='<div style="color:#f85149;font-size:11px;">Error</div>';badge.textContent='!';}}update_${props.id.replace(/-/g, '_')}();setInterval(update_${props.id.replace(/-/g, '_')},${(props.refreshInterval||300)*1000});`
   },
 
   'cron-jobs': {
