@@ -71,12 +71,12 @@ const WIDGET_ICONS = {
   
   // AI / Monitoring
   'ai-usage': { emoji: '🤖', phosphor: 'robot' },
-  'claude-local': { emoji: '🟣', phosphor: 'circle' },
-  'codex-local': { emoji: '🟢', phosphor: 'circle' },
-  'copilot-local': { emoji: '⚫', phosphor: 'circle' },
-  'cursor-local': { emoji: '🔵', phosphor: 'circle' },
-  'gemini-local': { emoji: '🔷', phosphor: 'diamond' },
-  'amp-local': { emoji: '⚡', phosphor: 'lightning' },
+  'claude-code': { emoji: '🟣', phosphor: 'circle' },
+  'codex-cli': { emoji: '🟢', phosphor: 'circle' },
+  'github-copilot': { emoji: '⚫', phosphor: 'circle' },
+  'cursor': { emoji: '🔵', phosphor: 'circle' },
+  'gemini-cli': { emoji: '🔷', phosphor: 'diamond' },
+  'amp-code': { emoji: '⚡', phosphor: 'lightning' },
   'ai-claude': { emoji: '🟣', phosphor: 'circle' },
   'ai-cost': { emoji: '💰', phosphor: 'currency-dollar' },
   'api-status': { emoji: '🔄', phosphor: 'arrows-clockwise' },
@@ -930,9 +930,9 @@ const WIDGETS = {
     `
   },
 
-  'claude-local': {
+  'claude-code': {
 
-    name: 'Claude (Local)',
+    name: 'Claude Code',
     icon: '🟣',
     category: 'small',
     description: 'Track Claude Code usage (session, weekly, Opus limits). Reads from local CLI credentials.',
@@ -1001,9 +1001,9 @@ const WIDGETS = {
     `
   },
 
-  'codex-local': {
+  'codex-cli': {
 
-    name: 'Codex (Local)',
+    name: 'Codex CLI',
     icon: '🟢',
     category: 'small',
     description: 'Track Codex CLI usage (session, weekly, code reviews). Reads from local CLI credentials.',
@@ -1072,8 +1072,8 @@ const WIDGETS = {
     `
   },
 
-  'copilot-local': {
-    name: 'Copilot (Local)',
+  'github-copilot': {
+    name: 'GitHub Copilot',
     icon: '⚫',
     category: 'small',
     description: 'Track GitHub Copilot usage. Reads from gh CLI credentials.',
@@ -1110,8 +1110,8 @@ const WIDGETS = {
     `
   },
 
-  'cursor-local': {
-    name: 'Cursor (Local)',
+  'cursor': {
+    name: 'Cursor',
     icon: '🔵',
     category: 'small',
     description: 'Track Cursor IDE usage. Reads from local SQLite database.',
@@ -1148,8 +1148,8 @@ const WIDGETS = {
     `
   },
 
-  'gemini-local': {
-    name: 'Gemini (Local)',
+  'gemini-cli': {
+    name: 'Gemini CLI',
     icon: '🔷',
     category: 'small',
     description: 'Track Gemini CLI usage. Reads from local OAuth credentials.',
@@ -1186,8 +1186,8 @@ const WIDGETS = {
     `
   },
 
-  'amp-local': {
-    name: 'Amp (Local)',
+  'amp-code': {
+    name: 'Amp Code',
     icon: '⚡',
     category: 'small',
     description: 'Track Amp Code usage. Reads from local secrets file.',
