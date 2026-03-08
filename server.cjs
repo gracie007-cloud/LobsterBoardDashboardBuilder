@@ -298,9 +298,77 @@ const AUTH_FILE = path.join(__dirname, 'auth.json');
 const SECRETS_FILE = path.join(__dirname, 'secrets.json');
 
 // ─────────────────────────────────────────────
-// Security helpers
+// Server-side Session Authentication
 // ─────────────────────────────────────────────
 const crypto = require('crypto');
+
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || null;
+const SESSION_TTL_MS = (parseInt(process.env.SESSION_TTL_HOURS) || 24) * 60 * 60 * 1000;
+
+// In-memory session store: token -> expiresAt timestamp
+const sessions = new Map();
+
+// Rate limit store: ip -> { count, resetAt }
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MS = 15 * 60 * 1000;
+
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex'); // 64-char hex
+}
+
+function createSession() {
+  const token = generateSessionToken();
+  sessions.set(token, Date.now() + SESSION_TTL_MS);
+  return token;
+}
+
+function isValidSession(token) {
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) return false;
+  const exp = sessions.get(token);
+  if (!exp) return false;
+  if (Date.now() > exp) { sessions.delete(token); return false; }
+  return true;
+}
+
+function getSessionCookie(req) {
+  const cookie = req.headers.cookie || '';
+  const match = cookie.match(/(?:^|;\s*)lb_session=([a-f0-9]{64})/);
+  return match ? match[1] : null;
+}
+
+function checkPassword(input) {
+  if (!DASHBOARD_PASSWORD || !input) return false;
+  // HMAC both inputs so timingSafeEqual always compares equal-length buffers
+  const inputHash = crypto.createHmac('sha256', 'lb-session-auth').update(String(input)).digest();
+  const correctHash = crypto.createHmac('sha256', 'lb-session-auth').update(DASHBOARD_PASSWORD).digest();
+  return crypto.timingSafeEqual(inputHash, correctHash);
+}
+
+function isRateLimited(ip) {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) { loginAttempts.delete(ip); return false; }
+  return entry.count >= MAX_LOGIN_ATTEMPTS;
+}
+
+function recordFailedAttempt(ip) {
+  const entry = loginAttempts.get(ip) || { count: 0, resetAt: Date.now() + LOCKOUT_MS };
+  entry.count++;
+  loginAttempts.set(ip, entry);
+}
+
+// Clean expired sessions every hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, exp] of sessions) {
+    if (now > exp) sessions.delete(token);
+  }
+}, 60 * 60 * 1000);
+
+// ─────────────────────────────────────────────
+// Security helpers
+// ─────────────────────────────────────────────
 
 function hashPin(pin) {
   return crypto.createHash('sha256').update(pin).digest('hex');
@@ -483,9 +551,1260 @@ function parseIcal(text, maxEvents) {
   return events.slice(0, maxEvents);
 }
 
+// ─────────────────────────────────────────────
+// AI Usage Providers - Read local credentials and fetch usage
+// ─────────────────────────────────────────────
+
+const AI_PROVIDERS = {
+  claude: {
+    name: 'Claude Code',
+    icon: '🟣',
+    credPaths: [
+      path.join(os.homedir(), '.claude', '.credentials.json'),
+    ],
+    keychainService: 'Claude Code-credentials',
+  },
+  codex: {
+    name: 'Codex CLI',
+    icon: '🟢',
+    credPaths: [
+      process.env.CODEX_HOME ? path.join(process.env.CODEX_HOME, 'auth.json') : null,
+      path.join(os.homedir(), '.config', 'codex', 'auth.json'),
+      path.join(os.homedir(), '.codex', 'auth.json'),
+    ].filter(Boolean),
+    keychainService: 'Codex Auth',
+  },
+  copilot: {
+    name: 'GitHub Copilot',
+    icon: '⚫',
+    keychainService: 'gh:github.com',
+  },
+  cursor: {
+    name: 'Cursor',
+    icon: '🔵',
+    sqlitePath: path.join(os.homedir(), 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb'),
+  },
+  gemini: {
+    name: 'Gemini',
+    icon: '🔷',
+    credPaths: [
+      path.join(os.homedir(), '.gemini', 'oauth_creds.json'),
+    ],
+    settingsPath: path.join(os.homedir(), '.gemini', 'settings.json'),
+  },
+  amp: {
+    name: 'Amp',
+    icon: '⚡',
+    credPaths: [
+      path.join(os.homedir(), '.local', 'share', 'amp', 'secrets.json'),
+    ],
+  },
+  factory: {
+    name: 'Factory',
+    icon: '🏭',
+    credPaths: [
+      path.join(os.homedir(), '.factory', 'auth.json'),
+    ],
+  },
+  kimi: {
+    name: 'Kimi Code',
+    icon: '🌙',
+    credPaths: [
+      path.join(os.homedir(), '.kimi', 'credentials', 'kimi-code.json'),
+    ],
+  },
+  jetbrains: {
+    name: 'JetBrains AI',
+    icon: '🧠',
+    configDirs: [
+      path.join(os.homedir(), 'Library', 'Application Support', 'JetBrains'),
+    ],
+  },
+  minimax: {
+    name: 'MiniMax',
+    icon: '🔶',
+    envKeys: ['MINIMAX_API_KEY', 'MINIMAX_CN_API_KEY', 'MINIMAX_API_TOKEN'],
+  },
+  zai: {
+    name: 'Z.ai',
+    icon: '🇿',
+    envKeys: ['ZAI_API_KEY', 'GLM_API_KEY'],
+  },
+  antigravity: {
+    name: 'Antigravity',
+    icon: '🪐',
+    configPath: path.join(os.homedir(), 'Library', 'Application Support', 'antigravity-usage', 'config.json'),
+    accountsDir: path.join(os.homedir(), 'Library', 'Application Support', 'antigravity-usage', 'accounts'),
+    // OAuth credentials from env vars (get from antigravity-usage or Google Cloud Console)
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    apiUrl: 'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  },
+};
+
+// Try to read credentials from file paths, then keychain (macOS)
+function readCredentials(provider) {
+  const config = AI_PROVIDERS[provider];
+  if (!config) return null;
+  
+  // Try file paths first
+  for (const credPath of config.credPaths) {
+    try {
+      if (fs.existsSync(credPath)) {
+        const content = fs.readFileSync(credPath, 'utf8');
+        return { source: 'file', path: credPath, data: JSON.parse(content) };
+      }
+    } catch (e) {
+      // Continue to next path
+    }
+  }
+  
+  // Try macOS keychain (may have multiple entries with different accounts)
+  if (process.platform === 'darwin' && config.keychainService) {
+    const { execSync } = require('child_process');
+    const accounts = [process.env.USER, os.userInfo().username, 'Claude Code', ''].filter(Boolean);
+    
+    for (const account of accounts) {
+      try {
+        const accountArg = account ? `-a "${account}"` : '';
+        const keychainData = execSync(
+          `security find-generic-password -s "${config.keychainService}" ${accountArg} -w 2>/dev/null`,
+          { encoding: 'utf8', timeout: 5000 }
+        ).trim();
+        if (keychainData) {
+          const parsed = JSON.parse(keychainData);
+          // Check if this token is valid (not expired)
+          const oauth = parsed.claudeAiOauth || parsed;
+          if (oauth.expiresAt && oauth.expiresAt > Date.now()) {
+            return { source: 'keychain', service: config.keychainService, account, data: parsed };
+          }
+          // If no expiry or expired, keep looking but save as fallback
+          if (!config._fallbackCreds) {
+            config._fallbackCreds = { source: 'keychain', service: config.keychainService, account, data: parsed };
+          }
+        }
+      } catch (e) {
+        // Try next account
+      }
+    }
+    // Return fallback if we found expired creds but nothing valid
+    if (config._fallbackCreds) {
+      const result = config._fallbackCreds;
+      delete config._fallbackCreds;
+      return result;
+    }
+  }
+  
+  return null;
+}
+
+// Fetch Claude usage
+async function fetchClaudeUsage() {
+  const baseInfo = {
+    provider: 'claude',
+    name: AI_PROVIDERS.claude.name,
+    icon: AI_PROVIDERS.claude.icon,
+  };
+  
+  const creds = readCredentials('claude');
+  if (!creds) return { ...baseInfo, error: 'Not logged in. Run `claude` to authenticate.' };
+  
+  const oauthData = creds.data.claudeAiOauth;
+  if (!oauthData?.accessToken) return { ...baseInfo, error: 'No access token found.' };
+  
+  let accessToken = oauthData.accessToken;
+  
+  // Helper to make the API request
+  async function makeRequest(token) {
+    const resp = await fetch('https://api.anthropic.com/api/oauth/usage', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'anthropic-beta': 'oauth-2025-04-20',
+        'User-Agent': 'claude-code/1.0.0',
+        'X-Client-Name': 'claude-code',
+      },
+    });
+    return resp;
+  }
+  
+  // Try with current token first
+  let resp = await makeRequest(accessToken);
+  
+  // If unauthorized, try to refresh
+  if (resp.status === 401 || resp.status === 403) {
+    if (!oauthData.refreshToken) {
+      return { ...baseInfo, error: 'Session expired. Run `claude` to re-authenticate.' };
+    }
+    try {
+      const refreshed = await refreshClaudeToken(oauthData.refreshToken, creds.source === 'file' ? creds.path : null);
+      if (refreshed.error) {
+        return { ...baseInfo, error: 'Session expired. Run `claude` to re-authenticate.' };
+      }
+      accessToken = refreshed.accessToken;
+      resp = await makeRequest(accessToken);
+    } catch (e) {
+      return { ...baseInfo, error: 'Session expired. Run `claude` to re-authenticate.' };
+    }
+  }
+  
+  try {
+    if (!resp.ok) {
+      if (resp.status === 429) {
+        return { ...baseInfo, error: '429 rate limited - using cache' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    
+    // Normalize response
+    const metrics = [];
+    
+    if (data.five_hour) {
+      metrics.push({
+        label: 'Session (5h)',
+        used: data.five_hour.utilization,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.five_hour.resets_at,
+      });
+    }
+    
+    if (data.seven_day) {
+      metrics.push({
+        label: 'Weekly',
+        used: data.seven_day.utilization,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.seven_day.resets_at,
+      });
+    }
+    
+    if (data.seven_day_opus) {
+      metrics.push({
+        label: 'Opus Weekly',
+        used: data.seven_day_opus.utilization,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.seven_day_opus.resets_at,
+      });
+    }
+    
+    if (data.extra_usage?.is_enabled) {
+      metrics.push({
+        label: 'Extra Credits',
+        used: data.extra_usage.used_credits / 100,
+        limit: data.extra_usage.monthly_limit ? data.extra_usage.monthly_limit / 100 : null,
+        format: 'dollars',
+      });
+    }
+    
+    return {
+      provider: 'claude',
+      name: AI_PROVIDERS.claude.name,
+      icon: AI_PROVIDERS.claude.icon,
+      plan: oauthData.subscriptionType || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Refresh Claude token
+async function refreshClaudeToken(refreshToken, credPath) {
+  try {
+    const resp = await fetch('https://platform.claude.com/v1/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+        scope: 'user:profile user:inference user:sessions:claude_code user:mcp_servers',
+      }),
+    });
+    
+    if (!resp.ok) return { error: 'Refresh failed (HTTP ' + resp.status + ')' };
+    
+    const data = await resp.json();
+    
+    // Update credentials file
+    if (credPath && fs.existsSync(credPath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(credPath, 'utf8'));
+        existing.claudeAiOauth.accessToken = data.access_token;
+        if (data.refresh_token) existing.claudeAiOauth.refreshToken = data.refresh_token;
+        existing.claudeAiOauth.expiresAt = Date.now() + (data.expires_in * 1000);
+        fs.writeFileSync(credPath, JSON.stringify(existing, null, 2));
+      } catch (e) {
+        // Non-fatal: token still works for this request
+      }
+    }
+    
+    return { accessToken: data.access_token };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// Fetch Codex usage
+async function fetchCodexUsage() {
+  const baseInfo = {
+    provider: 'codex',
+    name: AI_PROVIDERS.codex.name,
+    icon: AI_PROVIDERS.codex.icon,
+  };
+  
+  const creds = readCredentials('codex');
+  if (!creds) return { ...baseInfo, error: 'Not logged in. Run `codex auth` to authenticate.' };
+  
+  const tokens = creds.data.tokens;
+  if (!tokens?.access_token) return { ...baseInfo, error: 'No access token found.' };
+  
+  try {
+    const headers = {
+      'Authorization': `Bearer ${tokens.access_token}`,
+      'Accept': 'application/json',
+    };
+    if (tokens.account_id) {
+      headers['ChatGPT-Account-Id'] = tokens.account_id;
+    }
+    
+    const resp = await fetch('https://chatgpt.com/backend-api/wham/usage', { headers });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Run `codex auth` to re-authenticate.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    
+    // Normalize response
+    const metrics = [];
+    
+    if (data.rate_limit?.primary_window) {
+      const pw = data.rate_limit.primary_window;
+      metrics.push({
+        label: 'Session (5h)',
+        used: pw.used_percent,
+        limit: 100,
+        format: 'percent',
+        resetsAt: pw.reset_at ? new Date(pw.reset_at * 1000).toISOString() : null,
+      });
+    }
+    
+    if (data.rate_limit?.secondary_window) {
+      const sw = data.rate_limit.secondary_window;
+      metrics.push({
+        label: 'Weekly',
+        used: sw.used_percent,
+        limit: 100,
+        format: 'percent',
+        resetsAt: sw.reset_at ? new Date(sw.reset_at * 1000).toISOString() : null,
+      });
+    }
+    
+    if (data.code_review_rate_limit?.primary_window) {
+      const cr = data.code_review_rate_limit.primary_window;
+      metrics.push({
+        label: 'Code Reviews',
+        used: cr.used_percent,
+        limit: 100,
+        format: 'percent',
+        resetsAt: cr.reset_at ? new Date(cr.reset_at * 1000).toISOString() : null,
+      });
+    }
+    
+    if (data.credits?.has_credits) {
+      metrics.push({
+        label: 'Credits',
+        used: null,
+        remaining: data.credits.balance,
+        format: 'dollars',
+        unlimited: data.credits.unlimited,
+      });
+    }
+    
+    return {
+      provider: 'codex',
+      name: AI_PROVIDERS.codex.name,
+      icon: AI_PROVIDERS.codex.icon,
+      plan: data.plan_type || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch GitHub Copilot usage
+async function fetchCopilotUsage() {
+  const baseInfo = {
+    provider: 'copilot',
+    name: AI_PROVIDERS.copilot.name,
+    icon: AI_PROVIDERS.copilot.icon,
+  };
+  
+  // Try to get token from gh CLI keychain
+  let token = null;
+  if (process.platform === 'darwin') {
+    try {
+      const { execSync } = require('child_process');
+      token = execSync('security find-generic-password -s "gh:github.com" -w 2>/dev/null', 
+        { encoding: 'utf8', timeout: 5000 }).trim();
+    } catch (e) {}
+  }
+  
+  if (!token) {
+    return { ...baseInfo, error: 'Not logged in. Run `gh auth login` first.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api.github.com/copilot_internal/user', {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/json',
+        'Editor-Version': 'vscode/1.96.2',
+        'Editor-Plugin-Version': 'copilot-chat/0.26.7',
+        'User-Agent': 'GitHubCopilotChat/0.26.7',
+        'X-Github-Api-Version': '2025-04-01',
+      },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Token invalid. Run `gh auth login` to re-auth.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    // Paid tier
+    if (data.quota_snapshots) {
+      if (data.quota_snapshots.premium_interactions) {
+        const p = data.quota_snapshots.premium_interactions;
+        metrics.push({
+          label: 'Premium',
+          used: 100 - p.percent_remaining,
+          limit: 100,
+          format: 'percent',
+          resetsAt: data.quota_reset_date,
+        });
+      }
+      if (data.quota_snapshots.chat) {
+        const c = data.quota_snapshots.chat;
+        metrics.push({
+          label: 'Chat',
+          used: 100 - c.percent_remaining,
+          limit: 100,
+          format: 'percent',
+          resetsAt: data.quota_reset_date,
+        });
+      }
+    }
+    
+    // Free tier
+    if (data.limited_user_quotas && data.monthly_quotas) {
+      const chatUsed = data.monthly_quotas.chat - data.limited_user_quotas.chat;
+      const compUsed = data.monthly_quotas.completions - data.limited_user_quotas.completions;
+      metrics.push({
+        label: 'Chat',
+        used: (chatUsed / data.monthly_quotas.chat) * 100,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.limited_user_reset_date,
+      });
+      metrics.push({
+        label: 'Completions',
+        used: (compUsed / data.monthly_quotas.completions) * 100,
+        limit: 100,
+        format: 'percent',
+        resetsAt: data.limited_user_reset_date,
+      });
+    }
+    
+    return {
+      ...baseInfo,
+      plan: data.copilot_plan || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Cursor usage
+async function fetchCursorUsage() {
+  const baseInfo = {
+    provider: 'cursor',
+    name: AI_PROVIDERS.cursor.name,
+    icon: AI_PROVIDERS.cursor.icon,
+  };
+  
+  const dbPath = AI_PROVIDERS.cursor.sqlitePath;
+  if (!fs.existsSync(dbPath)) {
+    return { ...baseInfo, error: 'Cursor not installed.' };
+  }
+  
+  // Read token from SQLite
+  let accessToken = null;
+  let membershipType = null;
+  try {
+    const { execSync } = require('child_process');
+    accessToken = execSync(`sqlite3 "${dbPath}" "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'" 2>/dev/null`,
+      { encoding: 'utf8', timeout: 5000 }).trim();
+    membershipType = execSync(`sqlite3 "${dbPath}" "SELECT value FROM ItemTable WHERE key = 'cursorAuth/stripeMembershipType'" 2>/dev/null`,
+      { encoding: 'utf8', timeout: 5000 }).trim();
+  } catch (e) {}
+  
+  if (!accessToken) {
+    return { ...baseInfo, error: 'Not logged in. Sign in to Cursor.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Connect-Protocol-Version': '1',
+      },
+      body: '{}',
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Re-sign in to Cursor.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    if (data.planUsage) {
+      const pu = data.planUsage;
+      if (typeof pu.totalPercentUsed === 'number' && isFinite(pu.totalPercentUsed)) {
+        metrics.push({
+          label: 'Total Usage',
+          used: pu.totalPercentUsed,
+          limit: 100,
+          format: 'percent',
+        });
+      }
+      if (typeof pu.autoPercentUsed === 'number' && isFinite(pu.autoPercentUsed)) {
+        metrics.push({
+          label: 'Auto',
+          used: pu.autoPercentUsed,
+          limit: 100,
+          format: 'percent',
+        });
+      }
+      if (typeof pu.apiPercentUsed === 'number' && isFinite(pu.apiPercentUsed)) {
+        metrics.push({
+          label: 'API',
+          used: pu.apiPercentUsed,
+          limit: 100,
+          format: 'percent',
+        });
+      }
+    }
+    
+    return {
+      ...baseInfo,
+      plan: membershipType || 'unknown',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Gemini usage
+async function fetchGeminiUsage() {
+  const baseInfo = {
+    provider: 'gemini',
+    name: AI_PROVIDERS.gemini.name,
+    icon: AI_PROVIDERS.gemini.icon,
+  };
+  
+  const credsPath = AI_PROVIDERS.gemini.credPaths[0];
+  if (!fs.existsSync(credsPath)) {
+    return { ...baseInfo, error: 'Not logged in. Run `gemini auth` first.' };
+  }
+  
+  let creds;
+  try {
+    creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+  } catch (e) {
+    return { ...baseInfo, error: 'Invalid credentials file.' };
+  }
+  
+  if (!creds.access_token) {
+    return { ...baseInfo, error: 'No access token found.' };
+  }
+  
+  try {
+    // Get user quota
+    const resp = await fetch('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${creds.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Run `gemini auth` to re-auth.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    // Parse quota buckets (API returns 'buckets' with 'remainingFraction')
+    const buckets = data.buckets || data.quotaBuckets || [];
+    
+    // Filter for interesting models and REQUESTS type
+    const interestingModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    const seen = new Set();
+    
+    for (const bucket of buckets) {
+      if (bucket.tokenType !== 'REQUESTS') continue;
+      // Skip vertex variants
+      if (bucket.modelId?.includes('_vertex')) continue;
+      // Only show interesting models
+      if (!interestingModels.some(m => bucket.modelId?.startsWith(m))) continue;
+      // Dedupe
+      if (seen.has(bucket.modelId)) continue;
+      seen.add(bucket.modelId);
+      
+      const remaining = bucket.remainingFraction ?? 1;
+      metrics.push({
+        label: bucket.modelId || 'Quota',
+        used: Math.round((1 - remaining) * 100),
+        limit: 100,
+        format: 'percent',
+        resetTime: bucket.resetTime,
+      });
+    }
+    
+    return {
+      ...baseInfo,
+      plan: 'Gemini CLI',
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Amp usage
+async function fetchAmpUsage() {
+  const baseInfo = {
+    provider: 'amp',
+    name: AI_PROVIDERS.amp.name,
+    icon: AI_PROVIDERS.amp.icon,
+  };
+  
+  const secretsPath = AI_PROVIDERS.amp.credPaths[0];
+  if (!fs.existsSync(secretsPath)) {
+    return { ...baseInfo, error: 'Amp not installed. Install Amp Code to get started.' };
+  }
+  
+  let secrets;
+  try {
+    secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
+  } catch (e) {
+    return { ...baseInfo, error: 'Invalid secrets file.' };
+  }
+  
+  const apiKey = secrets['apiKey@https://ampcode.com/'];
+  if (!apiKey) {
+    return { ...baseInfo, error: 'Not logged in. Sign in to Amp Code.' };
+  }
+  
+  try {
+    const resp = await fetch('https://ampcode.com/api/internal', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ method: 'userDisplayBalanceInfo', params: {} }),
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        return { ...baseInfo, error: 'Session expired. Re-authenticate in Amp Code.' };
+      }
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    // Parse displayText for usage info
+    const displayText = data.result?.displayText || data.displayText || '';
+    
+    // Free tier: "$X/$Y remaining"
+    const freeMatch = displayText.match(/\$(\d+(?:\.\d+)?)\s*\/\s*\$(\d+(?:\.\d+)?)\s+remaining/i);
+    if (freeMatch) {
+      const remaining = parseFloat(freeMatch[1]);
+      const total = parseFloat(freeMatch[2]);
+      const used = total - remaining;
+      metrics.push({
+        label: 'Free',
+        used: (used / total) * 100,
+        limit: 100,
+        format: 'percent',
+      });
+    }
+    
+    // Credits: "Individual credits: $X remaining"
+    const creditsMatch = displayText.match(/Individual credits:\s*\$(\d+(?:\.\d+)?)/i);
+    if (creditsMatch) {
+      metrics.push({
+        label: 'Credits',
+        used: null,
+        remaining: parseFloat(creditsMatch[1]),
+        format: 'dollars',
+      });
+    }
+    
+    return {
+      ...baseInfo,
+      plan: freeMatch ? 'Free' : (creditsMatch ? 'Credits' : 'unknown'),
+      metrics,
+    };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Fetch Factory (Droid) usage
+async function fetchFactoryUsage() {
+  const baseInfo = { provider: 'factory', name: AI_PROVIDERS.factory.name, icon: AI_PROVIDERS.factory.icon };
+  const authPath = AI_PROVIDERS.factory.credPaths[0];
+  
+  if (!fs.existsSync(authPath)) {
+    return { ...baseInfo, error: 'Not logged in. Run `droid` to authenticate.' };
+  }
+  
+  let auth;
+  try { auth = JSON.parse(fs.readFileSync(authPath, 'utf8')); } 
+  catch (e) { return { ...baseInfo, error: 'Invalid auth file.' }; }
+  
+  if (!auth.access_token) return { ...baseInfo, error: 'No access token found.' };
+  
+  try {
+    const resp = await fetch('https://api.factory.ai/api/organization/subscription/usage', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${auth.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ useCache: true }),
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Session expired. Run `droid` to re-auth.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    if (data.usage?.standard) {
+      const s = data.usage.standard;
+      metrics.push({ label: 'Standard', used: (s.usedRatio || 0) * 100, limit: 100, format: 'percent' });
+    }
+    if (data.usage?.premium?.totalAllowance > 0) {
+      const p = data.usage.premium;
+      metrics.push({ label: 'Premium', used: (p.usedRatio || 0) * 100, limit: 100, format: 'percent' });
+    }
+    
+    const allowance = data.usage?.standard?.totalAllowance || 0;
+    const plan = allowance >= 200000000 ? 'Max' : allowance >= 20000000 ? 'Pro' : 'Basic';
+    
+    return { ...baseInfo, plan, metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+// Fetch Kimi Code usage
+async function fetchKimiUsage() {
+  const baseInfo = { provider: 'kimi', name: AI_PROVIDERS.kimi.name, icon: AI_PROVIDERS.kimi.icon };
+  const credPath = AI_PROVIDERS.kimi.credPaths[0];
+  
+  if (!fs.existsSync(credPath)) {
+    return { ...baseInfo, error: 'Not logged in. Run `kimi login` first.' };
+  }
+  
+  let creds;
+  try { creds = JSON.parse(fs.readFileSync(credPath, 'utf8')); }
+  catch (e) { return { ...baseInfo, error: 'Invalid credentials file.' }; }
+  
+  if (!creds.access_token) return { ...baseInfo, error: 'No access token found.' };
+  
+  try {
+    const resp = await fetch('https://api.kimi.com/coding/v1/usages', {
+      headers: { 'Authorization': `Bearer ${creds.access_token}`, 'Accept': 'application/json' },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Session expired. Run `kimi login` to re-auth.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    const metrics = [];
+    
+    if (data.usage) {
+      const used = parseInt(data.usage.limit) - parseInt(data.usage.remaining);
+      const total = parseInt(data.usage.limit);
+      metrics.push({ label: 'Session', used: (used / total) * 100, limit: 100, format: 'percent', resetsAt: data.usage.resetTime });
+    }
+    
+    const plan = data.user?.membership?.level?.replace('LEVEL_', '') || 'unknown';
+    return { ...baseInfo, plan, metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+// Fetch JetBrains AI usage
+async function fetchJetbrainsUsage() {
+  const baseInfo = { provider: 'jetbrains', name: AI_PROVIDERS.jetbrains.name, icon: AI_PROVIDERS.jetbrains.icon };
+  const configDir = AI_PROVIDERS.jetbrains.configDirs[0];
+  
+  if (!fs.existsSync(configDir)) {
+    return { ...baseInfo, error: 'JetBrains IDE not detected.' };
+  }
+  
+  // Find latest IDE config with quota file
+  let quotaData = null;
+  try {
+    const dirs = fs.readdirSync(configDir).filter(d => !d.startsWith('.'));
+    for (const dir of dirs.sort().reverse()) {
+      const quotaPath = path.join(configDir, dir, 'options', 'AIAssistantQuotaManager2.xml');
+      if (fs.existsSync(quotaPath)) {
+        const content = fs.readFileSync(quotaPath, 'utf8');
+        // Simple XML parsing for quota values
+        const currentMatch = content.match(/<option name="current" value="(\d+)"/);
+        const maxMatch = content.match(/<option name="maximum" value="(\d+)"/);
+        if (currentMatch && maxMatch) {
+          quotaData = { current: parseInt(currentMatch[1]), maximum: parseInt(maxMatch[1]) };
+          break;
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
+  
+  if (!quotaData) {
+    return { ...baseInfo, error: 'JetBrains AI quota not found. Open AI Assistant in IDE.' };
+  }
+  
+  const used = (quotaData.current / quotaData.maximum) * 100;
+  return { ...baseInfo, plan: 'AI Assistant', metrics: [{ label: 'Quota', used, limit: 100, format: 'percent' }] };
+}
+
+// Fetch MiniMax usage
+async function fetchMinimaxUsage() {
+  const baseInfo = { provider: 'minimax', name: AI_PROVIDERS.minimax.name, icon: AI_PROVIDERS.minimax.icon };
+  
+  const apiKey = process.env.MINIMAX_API_KEY || process.env.MINIMAX_CN_API_KEY || process.env.MINIMAX_API_TOKEN;
+  if (!apiKey) {
+    return { ...baseInfo, error: 'Set MINIMAX_API_KEY environment variable.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api.minimax.io/v1/api/openplatform/coding_plan/remains', {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Invalid API key.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    if (data.base_resp?.status_code !== 0) {
+      return { ...baseInfo, error: data.base_resp?.status_msg || 'API error' };
+    }
+    
+    const metrics = [];
+    const model = data.model_remains?.[0];
+    if (model) {
+      const total = model.current_interval_total_count || 100;
+      const remaining = model.current_interval_usage_count || model.current_interval_remaining_count || 0;
+      const used = ((total - remaining) / total) * 100;
+      metrics.push({ label: 'Session', used, limit: 100, format: 'percent' });
+    }
+    
+    return { ...baseInfo, plan: data.current_subscribe_title || 'MiniMax', metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+// Fetch Z.ai usage
+async function fetchZaiUsage() {
+  const baseInfo = { provider: 'zai', name: AI_PROVIDERS.zai.name, icon: AI_PROVIDERS.zai.icon };
+  
+  const apiKey = process.env.ZAI_API_KEY || process.env.GLM_API_KEY;
+  if (!apiKey) {
+    return { ...baseInfo, error: 'Set ZAI_API_KEY environment variable.' };
+  }
+  
+  try {
+    const resp = await fetch('https://api.z.ai/api/monitor/usage/quota/limit', {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Invalid API key.' };
+      return { ...baseInfo, error: `API error (HTTP ${resp.status})` };
+    }
+    
+    const data = await resp.json();
+    if (data.code !== 200) {
+      return { ...baseInfo, error: data.message || 'API error' };
+    }
+    
+    const metrics = [];
+    for (const limit of (data.data?.limits || [])) {
+      if (limit.type === 'TOKENS_LIMIT') {
+        metrics.push({ label: 'Session', used: limit.percentage || 0, limit: 100, format: 'percent' });
+      } else if (limit.type === 'TIME_LIMIT') {
+        metrics.push({ label: 'Weekly', used: limit.percentage || 0, limit: 100, format: 'percent' });
+      }
+    }
+    
+    return { ...baseInfo, plan: 'GLM Coding', metrics };
+  } catch (e) { return { ...baseInfo, error: 'Network error: ' + e.message }; }
+}
+
+async function fetchAntigravityUsage() {
+  const baseInfo = { provider: 'antigravity', name: AI_PROVIDERS.antigravity.name, icon: AI_PROVIDERS.antigravity.icon };
+  const config = AI_PROVIDERS.antigravity;
+  
+  // Read config to get active account
+  let activeAccount;
+  try {
+    const configData = JSON.parse(fs.readFileSync(config.configPath, 'utf8'));
+    activeAccount = configData.activeAccount;
+  } catch (_) {
+    return { ...baseInfo, error: 'Run: antigravity-usage login' };
+  }
+  
+  if (!activeAccount) {
+    return { ...baseInfo, error: 'No active account configured.' };
+  }
+  
+  // Read tokens for active account
+  const tokensPath = path.join(config.accountsDir, activeAccount, 'tokens.json');
+  let tokens;
+  try {
+    tokens = JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
+  } catch (_) {
+    return { ...baseInfo, error: 'Token file not found for ' + activeAccount };
+  }
+  
+  // Refresh token if expired
+  let accessToken = tokens.accessToken;
+  if (tokens.expiresAt && Date.now() > tokens.expiresAt - 60000) {
+    // Need OAuth credentials from env vars for token refresh
+    const clientId = process.env.ANTIGRAVITY_CLIENT_ID;
+    const clientSecret = process.env.ANTIGRAVITY_CLIENT_SECRET;
+    
+    if (!clientId || !clientSecret) {
+      return { ...baseInfo, error: 'Token expired. Run `antigravity-usage` to refresh, or set ANTIGRAVITY_CLIENT_ID/SECRET env vars.' };
+    }
+    
+    try {
+      const refreshResp = await fetch(config.tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: tokens.refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+      if (!refreshResp.ok) {
+        return { ...baseInfo, error: 'Token refresh failed (HTTP ' + refreshResp.status + ')' };
+      }
+      const refreshData = await refreshResp.json();
+      accessToken = refreshData.access_token;
+      // Update stored tokens
+      tokens.accessToken = accessToken;
+      tokens.expiresAt = Date.now() + (refreshData.expires_in * 1000);
+      try { fs.writeFileSync(tokensPath, JSON.stringify(tokens, null, 2)); } catch (_) {}
+    } catch (e) {
+      return { ...baseInfo, error: 'Token refresh error: ' + e.message };
+    }
+  }
+  
+  // Fetch available models with quota info
+  try {
+    const resp = await fetch(config.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json',
+        'User-Agent': 'antigravity',
+      },
+      body: JSON.stringify({ project: tokens.projectId }),
+    });
+    
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) return { ...baseInfo, error: 'Auth failed. Re-run: antigravity-usage login' };
+      if (resp.status === 429) return { ...baseInfo, error: 'Rate limited. Try again later.' };
+      return { ...baseInfo, error: 'API error (HTTP ' + resp.status + ')' };
+    }
+    
+    const data = await resp.json();
+    const models = data.models || {};
+    
+    // Build metrics from model quotas
+    const metrics = [];
+    const interestingModels = ['gemini-3-pro-high', 'gemini-3-pro-low', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking'];
+    
+    for (const modelId of interestingModels) {
+      const model = models[modelId];
+      if (model && model.quotaInfo) {
+        const remaining = model.quotaInfo.remainingFraction ?? 1;
+        metrics.push({
+          label: model.displayName || modelId,
+          used: Math.round((1 - remaining) * 100),
+          limit: 100,
+          format: 'percent',
+          resetTime: model.quotaInfo.resetTime,
+        });
+      }
+    }
+    
+    // If no interesting models found, show first few available
+    if (metrics.length === 0) {
+      for (const [modelId, model] of Object.entries(models).slice(0, 4)) {
+        if (model.quotaInfo) {
+          const remaining = model.quotaInfo.remainingFraction ?? 1;
+          metrics.push({
+            label: model.displayName || modelId,
+            used: Math.round((1 - remaining) * 100),
+            limit: 100,
+            format: 'percent',
+          });
+        }
+      }
+    }
+    
+    return { ...baseInfo, plan: activeAccount, metrics };
+  } catch (e) {
+    return { ...baseInfo, error: 'Network error: ' + e.message };
+  }
+}
+
+// Cache for AI usage data (avoid 429 rate limits)
+// In-memory cache
+const aiUsageCache = {
+  claude: { data: null, timestamp: 0 },
+  codex: { data: null, timestamp: 0 },
+  copilot: { data: null, timestamp: 0 },
+  cursor: { data: null, timestamp: 0 },
+  gemini: { data: null, timestamp: 0 },
+  factory: { data: null, timestamp: 0 },
+  kimi: { data: null, timestamp: 0 },
+  jetbrains: { data: null, timestamp: 0 },
+  minimax: { data: null, timestamp: 0 },
+  zai: { data: null, timestamp: 0 },
+  amp: { data: null, timestamp: 0 },
+  antigravity: { data: null, timestamp: 0 },
+};
+const AI_CACHE_TTL_MS = 300000; // 5 minutes cache
+
+// Persistent file cache (survives restarts)
+const AI_CACHE_FILE = path.join(__dirname, 'data', 'ai-usage-cache.json');
+
+function loadPersistentCache() {
+  try {
+    if (fs.existsSync(AI_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(AI_CACHE_FILE, 'utf8'));
+      for (const [provider, entry] of Object.entries(data)) {
+        if (aiUsageCache[provider] && entry.data) {
+          aiUsageCache[provider] = entry;
+        }
+      }
+      console.log('[AI Cache] Loaded persistent cache');
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function savePersistentCache() {
+  try {
+    fs.mkdirSync(path.dirname(AI_CACHE_FILE), { recursive: true });
+    fs.writeFileSync(AI_CACHE_FILE, JSON.stringify(aiUsageCache, null, 2));
+  } catch (e) { /* ignore */ }
+}
+
+// Load cache on startup
+loadPersistentCache();
+
+// Cached fetch wrapper
+async function fetchWithCache(provider, fetchFn) {
+  const cache = aiUsageCache[provider];
+  const now = Date.now();
+  
+  // Return cached data if fresh
+  if (cache.data && (now - cache.timestamp) < AI_CACHE_TTL_MS) {
+    return { ...cache.data, cached: true };
+  }
+  
+  // Fetch fresh data
+  const result = await fetchFn();
+  
+  // Only cache successful results (not errors)
+  if (!result.error) {
+    cache.data = result;
+    cache.timestamp = now;
+    savePersistentCache(); // Persist to disk
+  } else if (result.error.includes('429') || result.error.includes('rate')) {
+    // On rate limit, return stale cache if available
+    if (cache.data) {
+      return { ...cache.data, cached: true, stale: true, rateLimited: true };
+    }
+  }
+  
+  return result;
+}
+
+// Get all AI usage data
+async function getAllAiUsage(options = {}) {
+  const results = await Promise.all([
+    fetchWithCache('claude', fetchClaudeUsage),
+    fetchWithCache('codex', fetchCodexUsage),
+    fetchWithCache('copilot', fetchCopilotUsage),
+    fetchWithCache('cursor', fetchCursorUsage),
+    fetchWithCache('gemini', fetchGeminiUsage),
+    fetchWithCache('amp', fetchAmpUsage),
+    fetchWithCache('factory', fetchFactoryUsage),
+    fetchWithCache('kimi', fetchKimiUsage),
+    fetchWithCache('jetbrains', fetchJetbrainsUsage),
+    fetchWithCache('minimax', fetchMinimaxUsage),
+    fetchWithCache('zai', fetchZaiUsage),
+    fetchWithCache('antigravity', fetchAntigravityUsage),
+  ]);
+  
+  return {
+    providers: results,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// GET /api/latest-image?dir=<path> - newest image from a directory
+function latestImageHandler(parsedUrl, res) {
+  const dir = parsedUrl.searchParams.get('dir');
+  if (!dir) return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: 'Missing dir parameter' }));
+  const resolved = path.resolve(dir.replace(/^~/, os.homedir()));
+  const home = os.homedir();
+  if (!resolved.startsWith(home + path.sep) && resolved !== home) {
+    return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: 'Directory must be under home' }));
+  }
+  try {
+    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'];
+    const files = fs.readdirSync(resolved)
+      .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(resolved, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length === 0) return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'ok', image: null, message: 'No images found' }));
+    const latest = files[0];
+    const ext = path.extname(latest.name).toLowerCase().replace('.', '');
+    const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+    const data = fs.readFileSync(path.join(resolved, latest.name));
+    const b64 = data.toString('base64');
+    return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'ok', image: { name: latest.name, mtime: latest.mtime, dataUrl: `data:${mime};base64,${b64}` }, total: files.length }));
+  } catch (error) { 
+    return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: error.message })); 
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
   const pathname = parsedUrl.pathname;
+
+  // ── Auth: serve login page (always accessible) ──
+  if (req.method === 'GET' && pathname === '/login') {
+    const loginPath = path.join(__dirname, 'login.html');
+    fs.readFile(loginPath, (err, data) => {
+      if (err) { sendResponse(res, 404, 'text/plain', 'Login page not found'); return; }
+      sendResponse(res, 200, 'text/html', data);
+    });
+    return;
+  }
+
+  // ── Auth: login action ──
+  if (req.method === 'POST' && pathname === '/api/auth/login') {
+    if (!DASHBOARD_PASSWORD) {
+      sendJson(res, 200, { status: 'ok', redirect: '/' });
+      return;
+    }
+    const ip = req.socket.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      sendJson(res, 429, { error: 'Too many failed attempts. Try again in 15 minutes.' });
+      return;
+    }
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { password } = JSON.parse(body);
+        if (checkPassword(password)) {
+          const token = createSession();
+          const cookieOpts = `Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL_MS / 1000}`;
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Set-Cookie': `lb_session=${token}; ${cookieOpts}`
+          });
+          res.end(JSON.stringify({ status: 'ok', redirect: '/' }));
+        } else {
+          recordFailedAttempt(ip);
+          sendJson(res, 401, { error: 'Invalid password' });
+        }
+      } catch (e) {
+        sendJson(res, 400, { error: 'Invalid request' });
+      }
+    });
+    return;
+  }
+
+  // ── Auth: logout ──
+  if (req.method === 'POST' && pathname === '/api/auth/logout') {
+    const token = getSessionCookie(req);
+    if (token) sessions.delete(token);
+    res.writeHead(302, {
+      'Set-Cookie': 'lb_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0',
+      'Location': '/login'
+    });
+    res.end();
+    return;
+  }
+
+  // ── Auth: enforce session for all other routes ──
+  if (DASHBOARD_PASSWORD) {
+    const token = getSessionCookie(req);
+    if (!isValidSession(token)) {
+      if (pathname.startsWith('/api/')) {
+        sendJson(res, 401, { status: 'error', message: 'Not authenticated' });
+      } else {
+        res.writeHead(302, { 'Location': '/login' });
+        res.end();
+      }
+      return;
+    }
+  }
 
   // CORS preflight for /config
   if (req.method === 'OPTIONS' && pathname === '/config') {
@@ -495,6 +1814,141 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type'
     });
     res.end();
+    return;
+  }
+
+  // ─────────────────────────────────────────────
+  // Server Profiles API (for remote LobsterBoard Agent connections)
+  // ─────────────────────────────────────────────
+  const SERVERS_FILE = path.join(__dirname, 'data', 'servers.json');
+  
+  function loadServers() {
+    try {
+      if (fs.existsSync(SERVERS_FILE)) {
+        return JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
+      }
+    } catch (e) { /* ignore */ }
+    return [{ id: 'local', name: 'Local', type: 'local' }];
+  }
+  
+  function saveServers(servers) {
+    fs.mkdirSync(path.dirname(SERVERS_FILE), { recursive: true });
+    fs.writeFileSync(SERVERS_FILE, JSON.stringify(servers, null, 2));
+  }
+
+  // GET /api/servers - List all servers
+  if (req.method === 'GET' && pathname === '/api/servers') {
+    const servers = loadServers();
+    // Mask API keys for security
+    const masked = servers.map(s => ({
+      ...s,
+      apiKey: s.apiKey ? s.apiKey.slice(0, 10) + '...' : undefined
+    }));
+    sendJson(res, 200, { servers: masked });
+    return;
+  }
+
+  // POST /api/servers - Add a server
+  if (req.method === 'POST' && pathname === '/api/servers') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { name, url, apiKey } = JSON.parse(body);
+        if (!name || !url || !apiKey) {
+          return sendJson(res, 400, { error: 'name, url, and apiKey required' });
+        }
+        const servers = loadServers();
+        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (servers.find(s => s.id === id)) {
+          return sendJson(res, 400, { error: 'Server with this name already exists' });
+        }
+        servers.push({ id, name, url, apiKey, type: 'remote' });
+        saveServers(servers);
+        sendJson(res, 200, { status: 'success', id });
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+    });
+    return;
+  }
+
+  // PUT /api/servers/:id - Update a server
+  if (req.method === 'PUT' && pathname.startsWith('/api/servers/')) {
+    const id = pathname.split('/')[3];
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const updates = JSON.parse(body);
+        const servers = loadServers();
+        const idx = servers.findIndex(s => s.id === id);
+        if (idx === -1) return sendJson(res, 404, { error: 'Server not found' });
+        if (id === 'local') return sendJson(res, 400, { error: 'Cannot modify local server' });
+        servers[idx] = { ...servers[idx], ...updates, id }; // Don't allow id change
+        saveServers(servers);
+        sendJson(res, 200, { status: 'success' });
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+    });
+    return;
+  }
+
+  // DELETE /api/servers/:id - Delete a server
+  if (req.method === 'DELETE' && pathname.startsWith('/api/servers/')) {
+    const id = pathname.split('/')[3];
+    if (id === 'local') return sendJson(res, 400, { error: 'Cannot delete local server' });
+    const servers = loadServers();
+    const filtered = servers.filter(s => s.id !== id);
+    if (filtered.length === servers.length) {
+      return sendJson(res, 404, { error: 'Server not found' });
+    }
+    saveServers(filtered);
+    sendJson(res, 200, { status: 'success' });
+    return;
+  }
+
+  // POST /api/servers/:id/test - Test connection to a server
+  if (req.method === 'POST' && pathname.match(/^\/api\/servers\/[^/]+\/test$/)) {
+    const id = pathname.split('/')[3];
+    const servers = loadServers();
+    const server = servers.find(s => s.id === id);
+    if (!server) return sendJson(res, 404, { error: 'Server not found' });
+    if (server.type === 'local') {
+      return sendJson(res, 200, { status: 'ok', message: 'Local server' });
+    }
+    // Test remote connection
+    fetch(server.url + '/health', {
+      headers: { 'X-API-Key': server.apiKey },
+      signal: AbortSignal.timeout(5000),
+    })
+      .then(r => r.json())
+      .then(data => sendJson(res, 200, { status: 'ok', serverName: data.serverName }))
+      .catch(e => sendJson(res, 200, { status: 'error', message: e.message }));
+    return;
+  }
+
+  // GET /api/servers/:id/stats - Fetch stats from a remote server
+  if (req.method === 'GET' && pathname.match(/^\/api\/servers\/[^/]+\/stats$/)) {
+    const id = pathname.split('/')[3];
+    const servers = loadServers();
+    const server = servers.find(s => s.id === id);
+    if (!server) return sendJson(res, 404, { error: 'Server not found' });
+    if (server.type === 'local') {
+      return sendJson(res, 400, { error: 'Use /api/stats/stream for local' });
+    }
+    // Fetch from remote agent
+    fetch(server.url + '/stats', {
+      headers: { 'X-API-Key': server.apiKey },
+      signal: AbortSignal.timeout(10000),
+    })
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => sendJson(res, 200, data))
+      .catch(e => sendJson(res, 500, { error: e.message }));
     return;
   }
 
@@ -811,6 +2265,70 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+  }
+
+  // GET /api/ai-usage - Fetch usage from all configured AI providers
+  if (req.method === 'GET' && pathname === '/api/ai-usage') {
+    try {
+      const data = await getAllAiUsage();
+      sendJson(res, 200, { status: 'ok', ...data });
+    } catch (e) {
+      sendError(res, e.message);
+    }
+    return;
+  }
+
+  // GET /api/ai-usage/:provider - Fetch usage from a specific provider
+  const aiUsageMatch = pathname.match(/^\/api\/ai-usage\/(\w+)$/);
+  if (req.method === 'GET' && aiUsageMatch) {
+    const provider = aiUsageMatch[1];
+    try {
+      let data;
+      switch (provider) {
+        case 'claude':
+          data = await fetchWithCache('claude', fetchClaudeUsage);
+          break;
+        case 'codex':
+          data = await fetchWithCache('codex', fetchCodexUsage);
+          break;
+        case 'copilot':
+          data = await fetchWithCache('copilot', fetchCopilotUsage);
+          break;
+        case 'cursor':
+          data = await fetchWithCache('cursor', fetchCursorUsage);
+          break;
+        case 'gemini':
+          data = await fetchWithCache('gemini', fetchGeminiUsage);
+          break;
+        case 'amp':
+          data = await fetchWithCache('amp', fetchAmpUsage);
+          break;
+        case 'factory':
+          data = await fetchWithCache('factory', fetchFactoryUsage);
+          break;
+        case 'kimi':
+          data = await fetchWithCache('kimi', fetchKimiUsage);
+          break;
+        case 'jetbrains':
+          data = await fetchWithCache('jetbrains', fetchJetbrainsUsage);
+          break;
+        case 'minimax':
+          data = await fetchWithCache('minimax', fetchMinimaxUsage);
+          break;
+        case 'zai':
+          data = await fetchWithCache('zai', fetchZaiUsage);
+          break;
+        case 'antigravity':
+          data = await fetchWithCache('antigravity', fetchAntigravityUsage);
+          break;
+        default:
+          return sendJson(res, 404, { status: 'error', message: `Unknown provider: ${provider}` });
+      }
+      sendJson(res, 200, { status: 'ok', ...data });
+    } catch (e) {
+      sendError(res, e.message);
+    }
+    return;
   }
 
   // GET /api/cron - Read cron jobs from OpenClaw cron store
@@ -1544,8 +3062,10 @@ const server = http.createServer(async (req, res) => {
         .sort((a, b) => a.localeCompare(b));
       const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'];
       const imageCount = fs.readdirSync(resolved).filter(f => imageExts.includes(path.extname(f).toLowerCase())).length;
-      sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'ok', path: resolved, dirs: entries, imageCount }));
-    } catch (error) { sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: error.message })); }
+      return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'ok', path: resolved, dirs: entries, imageCount }));
+    } catch (error) { 
+      return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: error.message })); 
+    }
   }
 
   if (req.method === 'POST' && pathname === '/api/templates/export') {
@@ -1697,39 +3217,18 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-// GET /api/latest-image?dir=<path> - newest image from a directory
-// (inserted before graceful shutdown)
-const latestImageHandler = (parsedUrl, res) => {
-  const dir = parsedUrl.searchParams.get('dir');
-  if (!dir) return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: 'Missing dir parameter' }));
-  const resolved = path.resolve(dir.replace(/^~/, os.homedir()));
-  const home = os.homedir();
-  if (!resolved.startsWith(home + path.sep) && resolved !== home) {
-    return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: 'Directory must be under home' }));
-  }
-  try {
-    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'];
-    const files = fs.readdirSync(resolved)
-      .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(resolved, f)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime);
-    if (files.length === 0) return sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'ok', image: null, message: 'No images found' }));
-    const latest = files[0];
-    const ext = path.extname(latest.name).toLowerCase().replace('.', '');
-    const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
-    const data = fs.readFileSync(path.join(resolved, latest.name));
-    const b64 = data.toString('base64');
-    sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'ok', image: { name: latest.name, mtime: latest.mtime, dataUrl: `data:${mime};base64,${b64}` }, total: files.length }));
-  } catch (error) { sendResponse(res, 200, 'application/json', JSON.stringify({ status: 'error', message: error.message })); }
-};
-
 // Graceful shutdown
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
 process.on('SIGINT', () => server.close(() => process.exit(0)));
 
 server.listen(PORT, HOST, () => {
+  const authStatus = DASHBOARD_PASSWORD
+    ? '   Password auth: ENABLED (DASHBOARD_PASSWORD is set)'
+    : '   Password auth: DISABLED — set DASHBOARD_PASSWORD=yourpassword to enable';
   console.log(`
-🦞 LobsterBoard Builder Server running at http://${HOST}:${PORT}
+LobsterBoard Builder Server running at http://${HOST}:${PORT}
+
+${authStatus}
 
    Press Ctrl+C to stop
 `);

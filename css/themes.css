@@ -740,11 +740,26 @@ body.theme-paper {
 .theme-terminal .lb-icon[data-icon="pages"]::after { content: "\eb03"; } /* files */
 
 /* AI / Monitoring icons */
+.theme-terminal .lb-icon[data-icon="ai-usage"]::after { content: "\ecc6"; } /* robot */
 .theme-terminal .lb-icon[data-icon="ai-claude"]::after { content: "\ea38"; } /* circle */
 .theme-terminal .lb-icon[data-icon="ai-cost"]::after { content: "\ea81"; } /* currency-dollar */
 .theme-terminal .lb-icon[data-icon="api-status"]::after { content: "\e96f"; } /* arrows-clockwise */
 .theme-terminal .lb-icon[data-icon="sessions"]::after { content: "\ea25"; } /* chat-dots */
 .theme-terminal .lb-icon[data-icon="tokens"]::after { content: "\ea18"; } /* chart-bar */
+
+/* AI Provider icons */
+.theme-terminal .lb-icon[data-icon="claude-code"]::after { content: "\ea38"; } /* circle */
+.theme-terminal .lb-icon[data-icon="codex-cli"]::after { content: "\ea38"; } /* circle */
+.theme-terminal .lb-icon[data-icon="github-copilot"]::after { content: "\ea38"; } /* circle */
+.theme-terminal .lb-icon[data-icon="cursor"]::after { content: "\ea38"; } /* circle */
+.theme-terminal .lb-icon[data-icon="gemini-cli"]::after { content: "\eaa9"; } /* diamond */
+.theme-terminal .lb-icon[data-icon="amp-code"]::after { content: "\ebb3"; } /* lightning */
+.theme-terminal .lb-icon[data-icon="factory"]::after { content: "\eaf4"; } /* factory */
+.theme-terminal .lb-icon[data-icon="kimi-code"]::after { content: "\ec10"; } /* moon */
+.theme-terminal .lb-icon[data-icon="jetbrains-ai"]::after { content: "\e9d1"; } /* brain */
+.theme-terminal .lb-icon[data-icon="minimax"]::after { content: "\eaa9"; } /* diamond */
+.theme-terminal .lb-icon[data-icon="zai"]::after { content: "\ecd9"; } /* sparkle */
+.theme-terminal .lb-icon[data-icon="antigravity"]::after { content: "\ec42"; } /* planet */
 
 /* Finance icons */
 .theme-terminal .lb-icon[data-icon="stock"]::after { content: "\ea1c"; } /* chart-line-up */
@@ -1121,6 +1136,55 @@ body.theme-paper {
 .theme-terminal .lb-icon[data-icon="memory"]::after { content: "\e9d1"; } /* brain */
 .theme-feminine .lb-icon[data-icon="memory"]::after { content: "\e9d1"; } /* brain */
 .theme-paper .lb-icon[data-icon="memory"]::after { content: "\e9d1"; } /* brain */
+
+/* AI Provider icons for all icon-mapped themes */
+.theme-paper .lb-icon[data-icon="ai-usage"]::after,
+.theme-feminine .lb-icon[data-icon="ai-usage"]::after,
+.theme-feminine-dark .lb-icon[data-icon="ai-usage"]::after { content: "\ecc6"; } /* robot */
+
+.theme-paper .lb-icon[data-icon="claude-code"]::after,
+.theme-paper .lb-icon[data-icon="codex-cli"]::after,
+.theme-paper .lb-icon[data-icon="github-copilot"]::after,
+.theme-paper .lb-icon[data-icon="cursor"]::after,
+.theme-feminine .lb-icon[data-icon="claude-code"]::after,
+.theme-feminine .lb-icon[data-icon="codex-cli"]::after,
+.theme-feminine .lb-icon[data-icon="github-copilot"]::after,
+.theme-feminine .lb-icon[data-icon="cursor"]::after,
+.theme-feminine-dark .lb-icon[data-icon="claude-code"]::after,
+.theme-feminine-dark .lb-icon[data-icon="codex-cli"]::after,
+.theme-feminine-dark .lb-icon[data-icon="github-copilot"]::after,
+.theme-feminine-dark .lb-icon[data-icon="cursor"]::after { content: "\ea38"; } /* circle */
+
+.theme-paper .lb-icon[data-icon="gemini-cli"]::after,
+.theme-paper .lb-icon[data-icon="minimax"]::after,
+.theme-feminine .lb-icon[data-icon="gemini-cli"]::after,
+.theme-feminine .lb-icon[data-icon="minimax"]::after,
+.theme-feminine-dark .lb-icon[data-icon="gemini-cli"]::after,
+.theme-feminine-dark .lb-icon[data-icon="minimax"]::after { content: "\eaa9"; } /* diamond */
+
+.theme-paper .lb-icon[data-icon="amp-code"]::after,
+.theme-feminine .lb-icon[data-icon="amp-code"]::after,
+.theme-feminine-dark .lb-icon[data-icon="amp-code"]::after { content: "\ebb3"; } /* lightning */
+
+.theme-paper .lb-icon[data-icon="factory"]::after,
+.theme-feminine .lb-icon[data-icon="factory"]::after,
+.theme-feminine-dark .lb-icon[data-icon="factory"]::after { content: "\eaf4"; } /* factory */
+
+.theme-paper .lb-icon[data-icon="kimi-code"]::after,
+.theme-feminine .lb-icon[data-icon="kimi-code"]::after,
+.theme-feminine-dark .lb-icon[data-icon="kimi-code"]::after { content: "\ec10"; } /* moon */
+
+.theme-paper .lb-icon[data-icon="jetbrains-ai"]::after,
+.theme-feminine .lb-icon[data-icon="jetbrains-ai"]::after,
+.theme-feminine-dark .lb-icon[data-icon="jetbrains-ai"]::after { content: "\e9d1"; } /* brain */
+
+.theme-paper .lb-icon[data-icon="zai"]::after,
+.theme-feminine .lb-icon[data-icon="zai"]::after,
+.theme-feminine-dark .lb-icon[data-icon="zai"]::after { content: "\ecd9"; } /* sparkle */
+
+.theme-paper .lb-icon[data-icon="antigravity"]::after,
+.theme-feminine .lb-icon[data-icon="antigravity"]::after,
+.theme-feminine-dark .lb-icon[data-icon="antigravity"]::after { content: "\ec42"; } /* planet */
 
 /* RSS Ticker overrides for light themes */
 .theme-paper .news-ticker-wrap {
