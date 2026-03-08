@@ -690,6 +690,7 @@ async function addServer() {
       document.getElementById('server-name').value = '';
       document.getElementById('server-url').value = '';
       document.getElementById('server-apikey').value = '';
+      invalidateServerCache();
       await loadServersList();
     } else {
       resultEl.innerHTML = `<span style="color:#f85149;">${_escHtml(data.error || 'Failed to add')}</span>`;
@@ -746,6 +747,7 @@ async function deleteServer(id) {
     const res = await fetch(`/api/servers/${id}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.status === 'success') {
+      invalidateServerCache();
       await loadServersList();
     } else {
       alert(data.error || 'Failed to delete');
@@ -758,6 +760,34 @@ async function deleteServer(id) {
 function _escHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Server dropdown for system widgets
+let _cachedServers = null;
+async function populateServerDropdown(selectedValue) {
+  const select = document.getElementById('prop-server');
+  if (!select) return;
+  
+  // Fetch servers if not cached
+  if (!_cachedServers) {
+    try {
+      const res = await fetch('/api/servers');
+      const data = await res.json();
+      _cachedServers = data.servers || [];
+    } catch (e) {
+      _cachedServers = [{ id: 'local', name: 'Local', type: 'local' }];
+    }
+  }
+  
+  // Populate dropdown
+  select.innerHTML = _cachedServers.map(s => 
+    `<option value="${_escHtml(s.id)}"${s.id === selectedValue ? ' selected' : ''}>${_escHtml(s.name)}</option>`
+  ).join('');
+}
+
+// Invalidate server cache when servers are added/deleted
+function invalidateServerCache() {
+  _cachedServers = null;
 }
 
 function initCanvas() {
@@ -1217,6 +1247,9 @@ function initProperties() {
   document.getElementById('prop-api-key').addEventListener('input', onPropertyChange);
   document.getElementById('prop-api-key-value').addEventListener('input', onPropertyChange);
   document.getElementById('prop-endpoint').addEventListener('input', onPropertyChange);
+  if (document.getElementById('prop-server')) {
+    document.getElementById('prop-server').addEventListener('change', onPropertyChange);
+  }
   if (document.getElementById('prop-directorypath')) {
     document.getElementById('prop-directorypath').addEventListener('input', onPropertyChange);
     document.getElementById('btn-browse-dir').addEventListener('click', () => openDirBrowser());
@@ -1300,6 +1333,7 @@ function showProperties(widget) {
   // Hide all optional groups first
   document.getElementById('prop-api-group').style.display = 'none';
   document.getElementById('prop-endpoint-group').style.display = 'none';
+  if (document.getElementById('prop-server-group')) document.getElementById('prop-server-group').style.display = 'none';
   if (document.getElementById('prop-directorypath-group')) document.getElementById('prop-directorypath-group').style.display = 'none';
   document.getElementById('prop-location-group').style.display = 'none';
   document.getElementById('prop-locations-group').style.display = 'none';
@@ -1510,6 +1544,16 @@ function showProperties(widget) {
   if (widget.properties.endpoint !== undefined) {
     document.getElementById('prop-endpoint-group').style.display = 'block';
     document.getElementById('prop-endpoint').value = widget.properties.endpoint || '';
+  }
+
+  // Show server dropdown for system widgets
+  const systemWidgets = ['uptime-monitor', 'docker-containers', 'system-stats', 'disk-usage', 'network-speed'];
+  const serverGroup = document.getElementById('prop-server-group');
+  if (serverGroup && systemWidgets.includes(widget.type)) {
+    serverGroup.style.display = 'block';
+    populateServerDropdown(widget.properties.server || 'local');
+  } else if (serverGroup) {
+    serverGroup.style.display = 'none';
   }
 
   document.getElementById('prop-refresh').value = widget.properties.refreshInterval || 60;
@@ -1910,6 +1954,9 @@ function onPropertyChange(e) {
       break;
     case 'prop-endpoint':
       widget.properties.endpoint = e.target.value;
+      break;
+    case 'prop-server':
+      widget.properties.server = e.target.value;
       break;
     case 'prop-directorypath':
       widget.properties.directoryPath = e.target.value;
