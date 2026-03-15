@@ -332,29 +332,35 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Weather Widget: ${props.id} (uses free wttr.in API - no key needed)
+      // Weather Widget: ${props.id} (uses free Open-Meteo API - no key needed)
+      const WMO_DESC = {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Dense drizzle',61:'Slight rain',63:'Moderate rain',65:'Heavy rain',71:'Slight snow',73:'Moderate snow',75:'Heavy snow',80:'Slight showers',81:'Moderate showers',82:'Violent showers',95:'Thunderstorm',96:'Hail thunderstorm',99:'Heavy hail'};
+      function wmoIcon(code) {
+        if (code <= 1) return 'weather-sunny';
+        if (code <= 3) return 'weather-cloudy';
+        if (code >= 51 && code <= 82) return 'weather-rainy';
+        if (code >= 71 && code <= 77) return 'weather-snowy';
+        if (code >= 95) return 'weather-rainy';
+        return 'weather';
+      }
       async function update_${props.id.replace(/-/g, '_')}() {
         const valEl = document.getElementById('${props.id}-value');
         const labelEl = document.getElementById('${props.id}-label');
         const iconEl = document.getElementById('${props.id}-icon');
         try {
-          const location = encodeURIComponent('${props.location || 'Atlanta'}');
-          const res = await fetch('https://wttr.in/' + location + '?format=j1');
+          const loc = '${props.location || 'Graz'}';
+          const geoRes = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(loc) + '&count=1');
+          const geoData = await geoRes.json();
+          if (!geoData.results || !geoData.results.length) throw new Error('City not found');
+          const {latitude, longitude} = geoData.results[0];
+          const tempUnit = '${props.units}' === 'C' ? 'celsius' : 'fahrenheit';
+          const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + latitude + '&longitude=' + longitude + '&current=temperature_2m,weathercode,windspeed_10m&temperature_unit=' + tempUnit);
           const data = await res.json();
-          const current = data.current_condition[0];
-          const temp = '${props.units}' === 'C' ? current.temp_C : current.temp_F;
+          const c = data.current;
           const unit = '${props.units}' === 'C' ? '°C' : '°F';
-          valEl.textContent = temp + unit;
-          labelEl.textContent = current.weatherDesc[0].value;
-          // Update icon based on condition
-          const code = parseInt(current.weatherCode);
-          let iconId = 'weather';
-          if (code === 113) iconId = 'weather-sunny';
-          else if (code === 116 || code === 119) iconId = 'weather-cloudy';
-          else if (code >= 176 && code <= 359) iconId = 'weather-rainy';
-          else if (code >= 368 && code <= 395) iconId = 'weather-snowy';
+          valEl.textContent = Math.round(c.temperature_2m) + unit;
+          labelEl.textContent = WMO_DESC[c.weathercode] || 'Unknown';
+          const iconId = wmoIcon(c.weathercode);
           iconEl.setAttribute('data-icon', iconId);
-          // Update emoji fallback for non-themed views
           const icons = window.WIDGET_ICONS || {};
           iconEl.textContent = icons[iconId] ? icons[iconId].emoji : '🌡️';
         } catch (e) {
@@ -399,35 +405,42 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Multi Weather Widget: ${props.id} (uses free wttr.in API - no key needed)
+      // Multi Weather Widget: ${props.id} (uses free Open-Meteo API - no key needed)
+      const WMO_DESC2 = {0:'Clear',1:'Clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',61:'Rain',63:'Rain',65:'Heavy rain',71:'Snow',73:'Snow',75:'Heavy snow',80:'Showers',81:'Showers',82:'Showers',95:'Storm',96:'Hail',99:'Hail'};
+      function wmoIcon2(code) {
+        if (code <= 1) return 'weather-sunny';
+        if (code <= 3) return 'weather-cloudy';
+        if (code >= 51 && code <= 82) return 'weather-rainy';
+        if (code >= 71 && code <= 77) return 'weather-snowy';
+        if (code >= 95) return 'weather-rainy';
+        return 'weather';
+      }
       async function update_${props.id.replace(/-/g, '_')}() {
         const locations = '${props.locations || 'New York; London; Tokyo'}'.split(';').map(l => l.trim());
         const container = document.getElementById('${props.id}-list');
-        const unit = '${props.units}' === 'C' ? 'C' : 'F';
-        const unitSymbol = unit === 'C' ? '°C' : '°F';
+        const tempUnit = '${props.units}' === 'C' ? 'celsius' : 'fahrenheit';
+        const unitSymbol = '${props.units}' === 'C' ? '°C' : '°F';
         
         const results = await Promise.all(locations.map(async (loc) => {
           try {
-            const res = await fetch('https://wttr.in/' + encodeURIComponent(loc) + '?format=j1');
+            const geoRes = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(loc) + '&count=1');
+            const geoData = await geoRes.json();
+            if (!geoData.results || !geoData.results.length) return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓' };
+            const {latitude, longitude} = geoData.results[0];
+            const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + latitude + '&longitude=' + longitude + '&current=temperature_2m,weathercode&temperature_unit=' + tempUnit);
             const data = await res.json();
-            const current = data.current_condition[0];
-            const temp = unit === 'C' ? current.temp_C : current.temp_F;
-            const code = parseInt(current.weatherCode);
-            let iconId = 'weather';
-            if (code === 113) iconId = 'weather-sunny';
-            else if (code === 116 || code === 119) iconId = 'weather-cloudy';
-            else if (code >= 176 && code <= 359) iconId = 'weather-rainy';
-            else if (code >= 368 && code <= 395) iconId = 'weather-snowy';
+            const c = data.current;
+            const iconId = wmoIcon2(c.weathercode);
             const icons = window.WIDGET_ICONS || {};
             const emoji = icons[iconId] ? icons[iconId].emoji : '🌡️';
-            return { loc, temp, iconId, emoji, desc: current.weatherDesc[0].value };
+            return { loc, temp: Math.round(c.temperature_2m), iconId, emoji };
           } catch (e) {
-            return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓', desc: 'Error' };
+            return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓' };
           }
         }));
         
         container.innerHTML = results.map(r =>
-          '<div class="weather-row"><span class="weather-icon lb-icon" data-icon="' + _esc(r.iconId) + '">' + _esc(r.emoji) + '</span><span class="weather-loc">' + _esc(r.loc) + '</span><span class="weather-temp">' + _esc(r.temp) + _esc(unitSymbol) + '</span></div>'
+          '<div class="weather-row"><span class="weather-icon lb-icon" data-icon="' + _esc(r.iconId) + '">' + _esc(r.emoji) + '</span><span class="weather-loc">' + _esc(r.loc) + '</span><span class="weather-temp">' + _esc(String(r.temp)) + _esc(unitSymbol) + '</span></div>'
         ).join('');
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -3728,32 +3741,34 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // World Clock Widget: ${props.id} (uses wttr.in for timezone data)
+      // World Clock Widget: ${props.id} (pure Intl.DateTimeFormat - no API needed)
+      const CITY_TZ_MAP = {
+        'New York': 'America/New_York', 'Los Angeles': 'America/Los_Angeles', 'Chicago': 'America/Chicago',
+        'London': 'Europe/London', 'Paris': 'Europe/Paris', 'Berlin': 'Europe/Berlin',
+        'Tokyo': 'Asia/Tokyo', 'Sydney': 'Australia/Sydney', 'Dubai': 'Asia/Dubai',
+        'Singapore': 'Asia/Singapore', 'Hong Kong': 'Asia/Hong_Kong', 'Mumbai': 'Asia/Kolkata',
+        'Shanghai': 'Asia/Shanghai', 'Seoul': 'Asia/Seoul', 'Moscow': 'Europe/Moscow',
+        'Istanbul': 'Europe/Istanbul', 'Bangkok': 'Asia/Bangkok', 'Toronto': 'America/Toronto',
+        'Heidenheim': 'Europe/Berlin', 'Vienna': 'Europe/Vienna', 'Zurich': 'Europe/Zurich',
+        'Amsterdam': 'Europe/Amsterdam', 'Rome': 'Europe/Rome', 'Madrid': 'Europe/Madrid',
+        'São Paulo': 'America/Sao_Paulo', 'Mexico City': 'America/Mexico_City',
+        'Graz': 'Europe/Vienna', 'Munich': 'Europe/Berlin', 'Frankfurt': 'Europe/Berlin',
+        'Santiago': 'America/Santiago', 'Lima': 'America/Lima'
+      };
       const locs_${props.id.replace(/-/g, '_')} = '${props.locations || 'New York; London; Tokyo'}'.split(';').map(s => s.trim());
       const hour12_${props.id.replace(/-/g, '_')} = ${!props.format24h};
       
-      async function update_${props.id.replace(/-/g, '_')}() {
+      function update_${props.id.replace(/-/g, '_')}() {
         const container = document.getElementById('${props.id}-clocks');
-        const results = await Promise.all(locs_${props.id.replace(/-/g, '_')}.map(async (loc) => {
+        const now = new Date();
+        const results = locs_${props.id.replace(/-/g, '_')}.map(loc => {
+          const tz = CITY_TZ_MAP[loc] || CITY_TZ_MAP[Object.keys(CITY_TZ_MAP).find(k => k.toLowerCase() === loc.toLowerCase())] || null;
+          if (!tz) return { city: loc, time: '(unknown tz)' };
           try {
-            const res = await fetch('https://wttr.in/' + encodeURIComponent(loc) + '?format=j1');
-            const data = await res.json();
-            const area = data.nearest_area[0];
-            const city = area.areaName[0].value;
-            const localTime = data.current_condition[0].localObsDateTime;
-            // Parse the time from format "2026-02-07 12:30 AM"
-            const timePart = localTime.split(' ').slice(1).join(' ');
-            let displayTime = timePart;
-            if (!hour12_${props.id.replace(/-/g, '_')}) {
-              // Convert to 24h if needed
-              const d = new Date('2000-01-01 ' + timePart);
-              displayTime = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-            }
-            return { city, time: displayTime, ok: true };
-          } catch (e) {
-            return { city: loc, time: '—', ok: false };
-          }
-        }));
+            const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: hour12_${props.id.replace(/-/g, '_')} });
+            return { city: loc, time: fmt.format(now) };
+          } catch(e) { return { city: loc, time: '—' }; }
+        });
         container.innerHTML = results.map(r => 
           '<div class="tz-row"><span class="tz-city">' + r.city + '</span><span class="tz-time">' + r.time + '</span></div>'
         ).join('');
