@@ -8,9 +8,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const packageDir = join(__dirname, '..');
 
+// Keep user's working directory so custom pages/data work
 const child = fork(join(packageDir, 'server.cjs'), {
-  cwd: packageDir,
-  env: { ...process.env },
+  env: { ...process.env, LOBSTERBOARD_PKG_DIR: packageDir },
   stdio: 'inherit'
 });
 

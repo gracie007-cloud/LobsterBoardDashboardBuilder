@@ -8,6 +8,28 @@ Tell your OpenClaw agent:
 
 Your agent will create the page folder in `pages/` with the required files.
 
+## Where to Put Pages
+
+Create a `pages/` folder **in the directory where you run LobsterBoard**:
+
+```
+your-project/
+├── pages/              # Your custom pages go here
+│   └── my-page/
+├── data/               # Auto-created for page data
+├── public/             # Optional: static assets (images, etc.)
+├── node_modules/
+└── package.json
+```
+
+If installed via npm, run from your project folder:
+```bash
+cd your-project
+npm start
+```
+
+LobsterBoard loads pages from your directory first, then falls back to built-in pages.
+
 ## Manual Setup
 
 ### File Structure
@@ -102,6 +124,21 @@ Include in your `index.html`:
 ```
 
 The nav bar fetches `/api/pages` and renders links for all enabled pages, highlighting the current one.
+
+### Important: Use Absolute Paths
+
+Always use **absolute paths** for scripts and stylesheets in your `index.html`:
+
+```html
+<!-- ✅ Correct: absolute paths -->
+<script src="/pages/my-page/script.js"></script>
+<link rel="stylesheet" href="/pages/my-page/style.css">
+
+<!-- ❌ Wrong: relative paths may break -->
+<script src="script.js"></script>
+```
+
+This ensures assets load correctly regardless of how the URL is accessed.
 
 ### Storing Data
 

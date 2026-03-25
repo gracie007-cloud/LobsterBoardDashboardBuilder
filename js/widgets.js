@@ -304,7 +304,7 @@ const WIDGETS = {
     name: 'Local Weather',
     icon: '🌡️',
     category: 'small',
-    description: 'Shows current weather for a single location using wttr.in (no API key needed).',
+    description: 'Shows current weather for a single location using Open-Meteo (no API key needed).',
     defaultWidth: 200,
     defaultHeight: 120,
     hasApiKey: false,
@@ -332,29 +332,35 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Weather Widget: ${props.id} (uses free wttr.in API - no key needed)
+      // Weather Widget: ${props.id} (uses free Open-Meteo API - no key needed)
+      const WMO_DESC = {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Dense drizzle',61:'Slight rain',63:'Moderate rain',65:'Heavy rain',71:'Slight snow',73:'Moderate snow',75:'Heavy snow',80:'Slight showers',81:'Moderate showers',82:'Violent showers',95:'Thunderstorm',96:'Hail thunderstorm',99:'Heavy hail'};
+      function wmoIcon(code) {
+        if (code <= 1) return 'weather-sunny';
+        if (code <= 3) return 'weather-cloudy';
+        if (code >= 51 && code <= 82) return 'weather-rainy';
+        if (code >= 71 && code <= 77) return 'weather-snowy';
+        if (code >= 95) return 'weather-rainy';
+        return 'weather';
+      }
       async function update_${props.id.replace(/-/g, '_')}() {
         const valEl = document.getElementById('${props.id}-value');
         const labelEl = document.getElementById('${props.id}-label');
         const iconEl = document.getElementById('${props.id}-icon');
         try {
-          const location = encodeURIComponent('${props.location || 'Atlanta'}');
-          const res = await fetch('https://wttr.in/' + location + '?format=j1');
+          const loc = '${props.location || 'Atlanta'}';
+          const geoRes = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(loc) + '&count=1');
+          const geoData = await geoRes.json();
+          if (!geoData.results || !geoData.results.length) throw new Error('City not found');
+          const {latitude, longitude} = geoData.results[0];
+          const tempUnit = '${props.units}' === 'C' ? 'celsius' : 'fahrenheit';
+          const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + latitude + '&longitude=' + longitude + '&current=temperature_2m,weathercode,windspeed_10m&temperature_unit=' + tempUnit);
           const data = await res.json();
-          const current = data.current_condition[0];
-          const temp = '${props.units}' === 'C' ? current.temp_C : current.temp_F;
+          const c = data.current;
           const unit = '${props.units}' === 'C' ? '°C' : '°F';
-          valEl.textContent = temp + unit;
-          labelEl.textContent = current.weatherDesc[0].value;
-          // Update icon based on condition
-          const code = parseInt(current.weatherCode);
-          let iconId = 'weather';
-          if (code === 113) iconId = 'weather-sunny';
-          else if (code === 116 || code === 119) iconId = 'weather-cloudy';
-          else if (code >= 176 && code <= 359) iconId = 'weather-rainy';
-          else if (code >= 368 && code <= 395) iconId = 'weather-snowy';
+          valEl.textContent = Math.round(c.temperature_2m) + unit;
+          labelEl.textContent = WMO_DESC[c.weathercode] || 'Unknown';
+          const iconId = wmoIcon(c.weathercode);
           iconEl.setAttribute('data-icon', iconId);
-          // Update emoji fallback for non-themed views
           const icons = window.WIDGET_ICONS || {};
           iconEl.textContent = icons[iconId] ? icons[iconId].emoji : '🌡️';
         } catch (e) {
@@ -399,35 +405,42 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Multi Weather Widget: ${props.id} (uses free wttr.in API - no key needed)
+      // Multi Weather Widget: ${props.id} (uses free Open-Meteo API - no key needed)
+      const WMO_DESC2 = {0:'Clear',1:'Clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',61:'Rain',63:'Rain',65:'Heavy rain',71:'Snow',73:'Snow',75:'Heavy snow',80:'Showers',81:'Showers',82:'Showers',95:'Storm',96:'Hail',99:'Hail'};
+      function wmoIcon2(code) {
+        if (code <= 1) return 'weather-sunny';
+        if (code <= 3) return 'weather-cloudy';
+        if (code >= 51 && code <= 82) return 'weather-rainy';
+        if (code >= 71 && code <= 77) return 'weather-snowy';
+        if (code >= 95) return 'weather-rainy';
+        return 'weather';
+      }
       async function update_${props.id.replace(/-/g, '_')}() {
         const locations = '${props.locations || 'New York; London; Tokyo'}'.split(';').map(l => l.trim());
         const container = document.getElementById('${props.id}-list');
-        const unit = '${props.units}' === 'C' ? 'C' : 'F';
-        const unitSymbol = unit === 'C' ? '°C' : '°F';
+        const tempUnit = '${props.units}' === 'C' ? 'celsius' : 'fahrenheit';
+        const unitSymbol = '${props.units}' === 'C' ? '°C' : '°F';
         
         const results = await Promise.all(locations.map(async (loc) => {
           try {
-            const res = await fetch('https://wttr.in/' + encodeURIComponent(loc) + '?format=j1');
+            const geoRes = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(loc) + '&count=1');
+            const geoData = await geoRes.json();
+            if (!geoData.results || !geoData.results.length) return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓' };
+            const {latitude, longitude} = geoData.results[0];
+            const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + latitude + '&longitude=' + longitude + '&current=temperature_2m,weathercode&temperature_unit=' + tempUnit);
             const data = await res.json();
-            const current = data.current_condition[0];
-            const temp = unit === 'C' ? current.temp_C : current.temp_F;
-            const code = parseInt(current.weatherCode);
-            let iconId = 'weather';
-            if (code === 113) iconId = 'weather-sunny';
-            else if (code === 116 || code === 119) iconId = 'weather-cloudy';
-            else if (code >= 176 && code <= 359) iconId = 'weather-rainy';
-            else if (code >= 368 && code <= 395) iconId = 'weather-snowy';
+            const c = data.current;
+            const iconId = wmoIcon2(c.weathercode);
             const icons = window.WIDGET_ICONS || {};
             const emoji = icons[iconId] ? icons[iconId].emoji : '🌡️';
-            return { loc, temp, iconId, emoji, desc: current.weatherDesc[0].value };
+            return { loc, temp: Math.round(c.temperature_2m), iconId, emoji };
           } catch (e) {
-            return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓', desc: 'Error' };
+            return { loc, temp: 'N/A', iconId: 'weather', emoji: '❓' };
           }
         }));
         
         container.innerHTML = results.map(r =>
-          '<div class="weather-row"><span class="weather-icon lb-icon" data-icon="' + _esc(r.iconId) + '">' + _esc(r.emoji) + '</span><span class="weather-loc">' + _esc(r.loc) + '</span><span class="weather-temp">' + _esc(r.temp) + _esc(unitSymbol) + '</span></div>'
+          '<div class="weather-row"><span class="weather-icon lb-icon" data-icon="' + _esc(r.iconId) + '">' + _esc(r.emoji) + '</span><span class="weather-loc">' + _esc(r.loc) + '</span><span class="weather-temp">' + _esc(String(r.temp)) + _esc(unitSymbol) + '</span></div>'
         ).join('');
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -446,6 +459,7 @@ const WIDGETS = {
     apiKeyName: 'OPENCLAW_API',
     properties: {
       title: 'Auth Type',
+      server: 'local',
       endpoint: '/api/status',
       refreshInterval: 30
     },
@@ -465,15 +479,25 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Auth Status Widget: ${props.id}
+      // Auth Status Widget: ${props.id} — ${props.server === 'local' ? 'local' : 'remote: ' + props.server}
       async function update_${props.id.replace(/-/g, '_')}() {
+        const serverId = '${props.server || 'local'}';
+        const dot = document.getElementById('${props.id}-dot');
+        const val = document.getElementById('${props.id}-value');
         try {
-          const res = await fetch('/api/auth');
-          const data = await res.json();
-          const dot = document.getElementById('${props.id}-dot');
-          const val = document.getElementById('${props.id}-value');
-          if (data.status === 'ok') {
-            const isMonthly = data.mode === 'Monthly';
+          let authData;
+          if (serverId === 'local') {
+            const res = await fetch('/api/auth');
+            authData = await res.json();
+          } else {
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            if (!data.openclaw?.auth) throw new Error('Auth data not available');
+            authData = { status: 'ok', mode: data.openclaw.auth.mode };
+          }
+          if (authData.status === 'ok' || authData.mode) {
+            const isMonthly = authData.mode === 'Monthly';
             val.textContent = isMonthly ? 'Max' : 'API';
             dot.className = 'kpi-indicator ' + (isMonthly ? 'green' : 'yellow');
           } else {
@@ -481,7 +505,7 @@ const WIDGETS = {
           }
         } catch (e) {
           console.error('Auth status widget error:', e);
-          document.getElementById('${props.id}-value').textContent = '—';
+          val.textContent = '—';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -632,6 +656,7 @@ const WIDGETS = {
     hasApiKey: false,
     properties: {
       title: 'OpenClaw',
+      server: 'local',
       openclawUrl: '',
       refreshInterval: 3600
     },
@@ -658,21 +683,38 @@ const WIDGETS = {
       </div>`,
     generateJs: (props) => `
       async function update_${props.id.replace(/-/g, '_')}() {
+        const serverId = '${props.server || 'local'}';
         const currentEl = document.getElementById('${props.id}-current');
         const arrowEl = document.getElementById('${props.id}-arrow');
         const latestEl = document.getElementById('${props.id}-latest');
         const statusEl = document.getElementById('${props.id}-status');
         
         try {
-          const res = await fetch('/api/releases');
-          const data = await res.json();
-          if (data.status !== 'ok') throw new Error(data.message);
+          let cur, lat;
           
-          const cur = (data.current || '').replace(/^v/, '');
-          const lat = (data.latest || '').replace(/^v/, '');
+          if (serverId === 'local') {
+            // Local: fetch from /api/releases
+            const res = await fetch('/api/releases');
+            const data = await res.json();
+            if (data.status !== 'ok') throw new Error(data.message);
+            cur = (data.current || '').replace(/^v/, '');
+            lat = (data.latest || '').replace(/^v/, '');
+          } else {
+            // Remote: fetch from server stats and get openclaw.version
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            if (!data.openclaw) throw new Error('OpenClaw not installed on remote');
+            cur = (data.openclaw.version || '').replace(/^v/, '');
+            // Fetch latest from GitHub
+            const ghRes = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest');
+            const ghData = await ghRes.json();
+            lat = (ghData.tag_name || '').replace(/^v/, '');
+          }
+          
           // Strip -N suffixes for comparison (e.g. 2026.2.22-2 matches 2026.2.22)
-          const curBase = cur.replace(/-\d+$/, '');
-          const latBase = lat.replace(/-\d+$/, '');
+          const curBase = cur.replace(/-\\d+$/, '');
+          const latBase = lat.replace(/-\\d+$/, '');
           const isUpToDate = cur === lat || curBase === latBase || cur.startsWith(latBase + '-');
           
           if (!cur || cur === 'unknown') {
@@ -695,7 +737,7 @@ const WIDGETS = {
           }
         } catch (e) {
           currentEl.textContent = '—';
-          statusEl.textContent = 'Error';
+          statusEl.textContent = e.message || 'Error';
           console.error('OpenClaw Release widget error:', e);
         }
       }
@@ -840,6 +882,7 @@ const WIDGETS = {
     apiKeyName: 'OPENCLAW_API',
     properties: {
       title: 'Today',
+      server: 'local',
       endpoint: '/api/today',
       maxItems: 10,
       refreshInterval: 60
@@ -863,13 +906,22 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Activity List Widget: ${props.id} (Today style)
+      // Activity List Widget: ${props.id} — ${props.server === 'local' ? 'local' : 'remote: ' + props.server}
       async function update_${props.id.replace(/-/g, '_')}() {
+        const serverId = '${props.server || 'local'}';
+        const list = document.getElementById('${props.id}-list');
+        const badge = document.getElementById('${props.id}-badge');
         try {
-          const res = await fetch('${props.endpoint || '/api/today'}');
-          const data = await res.json();
-          const list = document.getElementById('${props.id}-list');
-          const badge = document.getElementById('${props.id}-badge');
+          let data;
+          if (serverId === 'local') {
+            const res = await fetch('${props.endpoint || '/api/today'}');
+            data = await res.json();
+          } else {
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const stats = await res.json();
+            if (stats.error) throw new Error(stats.error);
+            data = stats.openclaw?.today || { date: new Date().toISOString().split('T')[0], activities: [] };
+          }
 
           if (data.date && badge) {
             const d = new Date(data.date + 'T12:00:00');
@@ -892,7 +944,10 @@ const WIDGETS = {
               '<div style="flex-shrink:0;font-size:0.85em;color:#8b949e;margin-left:8px;">' + _esc(icon) + ' ' + source + '</div>' +
             '</div>';
           }).join('');
-        } catch (e) { console.error('Today widget error:', e); }
+        } catch (e) { 
+          console.error('Today widget error:', e);
+          list.innerHTML = '<div style="padding:8px;color:#f85149;font-size:calc(12px * var(--font-scale,1));">Error: ' + _esc(e.message) + '</div>';
+        }
       }
       update_${props.id.replace(/-/g, '_')}();
       setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 60) * 1000});
@@ -910,6 +965,7 @@ const WIDGETS = {
     hasApiKey: false,
     properties: {
       title: 'AI Usage',
+      server: 'local',
       providers: 'all',
       hideUnauthenticated: true,
       showPlan: true,
@@ -931,15 +987,34 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // AI Usage Widget: ${props.id}
+      // AI Usage Widget: ${props.id} — ${props.server === 'local' ? 'local' : 'remote: ' + props.server}
       async function update_${props.id.replace(/-/g, '_')}() {
         const content = document.getElementById('${props.id}-content');
         const badge = document.getElementById('${props.id}-badge');
         try {
+          const serverId = '${props.server || 'local'}';
           const providers = '${props.providers || 'all'}';
-          const url = providers === 'all' ? '/api/ai-usage' : '/api/ai-usage/' + providers;
-          const res = await fetch(url);
-          const json = await res.json();
+          let json;
+          
+          if (serverId === 'local') {
+            // Local: fetch from /api/ai-usage
+            const url = providers === 'all' ? '/api/ai-usage' : '/api/ai-usage/' + providers;
+            const res = await fetch(url);
+            json = await res.json();
+          } else {
+            // Remote: fetch from server stats endpoint
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const data = await res.json();
+            if (data.error) {
+              json = { status: 'error', message: data.error };
+            } else if (data.aiUsage && data.aiUsage.providers) {
+              json = { status: 'ok', providers: data.aiUsage.providers };
+            } else if (data.aiUsage === undefined) {
+              json = { status: 'error', message: 'AI usage not enabled on remote agent (enableAiUsage: false)' };
+            } else {
+              json = { status: 'error', message: 'No AI providers found on remote server' };
+            }
+          }
           
           if (json.status !== 'ok') {
             content.innerHTML = '<div style="color:#f85149;font-size:12px;">' + _esc(json.message || 'Error') + '</div>';
@@ -1430,6 +1505,7 @@ const WIDGETS = {
     hasApiKey: false,
     properties: {
       title: 'Cron',
+      server: 'local',
       endpoint: '/api/cron',
       columns: 1,
       refreshInterval: 30
@@ -1451,14 +1527,24 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Cron Jobs Widget: ${props.id}
+      // Cron Jobs Widget: ${props.id} — ${props.server === 'local' ? 'local' : 'remote: ' + props.server}
       async function update_${props.id.replace(/-/g, '_')}() {
+        const serverId = '${props.server || 'local'}';
+        const list = document.getElementById('${props.id}-list');
+        const badge = document.getElementById('${props.id}-badge');
         try {
-          const res = await fetch('${props.endpoint || '/api/cron'}');
-          const json = await res.json();
-          const jobs = json.jobs || [];
-          const list = document.getElementById('${props.id}-list');
-          const badge = document.getElementById('${props.id}-badge');
+          let jobs;
+          if (serverId === 'local') {
+            const res = await fetch('${props.endpoint || '/api/cron'}');
+            const json = await res.json();
+            jobs = json.jobs || [];
+          } else {
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            if (!data.openclaw?.cron) throw new Error('Cron data not available');
+            jobs = data.openclaw.cron.jobs || [];
+          }
           if (!jobs.length) {
             list.innerHTML = '<div class="cron-item"><span class="cron-name" style="opacity:0.5;">No cron jobs found</span></div>';
             badge.textContent = '0';
@@ -1486,7 +1572,7 @@ const WIDGETS = {
           badge.textContent = jobs.length + ' jobs';
         } catch (e) {
           console.error('Cron jobs widget error:', e);
-          document.getElementById('${props.id}-list').innerHTML = '<div class="cron-item"><span class="cron-name">Error loading</span></div>';
+          list.innerHTML = '<div class="cron-item"><span class="cron-name">Error: ' + _esc(e.message) + '</span></div>';
         }
       }
       update_${props.id.replace(/-/g, '_')}();
@@ -1505,6 +1591,7 @@ const WIDGETS = {
     hasApiKey: false,
     properties: {
       title: 'System Log',
+      server: 'local',
       endpoint: '/api/system-log',
       maxLines: 50,
       refreshInterval: 10
@@ -1537,20 +1624,29 @@ const WIDGETS = {
         if (level === 'OK') return 'ok';
         return 'info';
       }
+      // System Log Widget: ${props.id} — ${props.server === 'local' ? 'local' : 'remote: ' + props.server}
       async function update_${props.id.replace(/-/g, '_')}() {
+        const serverId = '${props.server || 'local'}';
         try {
-          const res = await fetch('${props.endpoint || '/api/system-log'}?max=${props.maxLines || 50}');
-          const json = await res.json();
-          // Handle both new format (json.entries) and old format (json.lines)
-          let entries = json.entries || [];
-          if (!entries.length && json.lines && json.lines.length) {
-            entries = json.lines.map(line => {
-              let level = 'INFO';
-              if (/\\b(error|fatal)\\b/i.test(line)) level = 'ERROR';
-              else if (/\\bwarn/i.test(line)) level = 'WARN';
-              else if (/\\b(ok|success|ready|started)\\b/i.test(line)) level = 'OK';
-              return { time: new Date().toISOString(), level, category: 'system', message: line };
-            });
+          let entries = [];
+          if (serverId === 'local') {
+            const res = await fetch('${props.endpoint || '/api/system-log'}?max=${props.maxLines || 50}');
+            const json = await res.json();
+            entries = json.entries || [];
+            if (!entries.length && json.lines && json.lines.length) {
+              entries = json.lines.map(line => {
+                let level = 'INFO';
+                if (/\\b(error|fatal)\\b/i.test(line)) level = 'ERROR';
+                else if (/\\bwarn/i.test(line)) level = 'WARN';
+                else if (/\\b(ok|success|ready|started)\\b/i.test(line)) level = 'OK';
+                return { time: new Date().toISOString(), level, category: 'system', message: line };
+              });
+            }
+          } else {
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            entries = data.openclaw?.systemLog?.entries || [];
           }
           const log = document.getElementById('${props.id}-log');
           const badge = document.getElementById('${props.id}-badge');
@@ -2115,6 +2211,7 @@ const WIDGETS = {
     apiKeyName: 'OPENCLAW_API',
     properties: {
       title: 'Sessions',
+      server: 'local',
       endpoint: '/api/sessions',
       refreshInterval: 30
     },
@@ -2133,13 +2230,23 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // Session Count Widget: ${props.id}
+      // Session Count Widget: ${props.id} — ${props.server === 'local' ? 'local' : 'remote: ' + props.server}
       async function update_${props.id.replace(/-/g, '_')}() {
+        const serverId = '${props.server || 'local'}';
         try {
-          const res = await fetch('${props.endpoint || '/api/sessions'}');
-          const json = await res.json();
-          const data = json.data || json;
-          document.getElementById('${props.id}-count').textContent = data.active || data.length || 0;
+          let count;
+          if (serverId === 'local') {
+            const res = await fetch('${props.endpoint || '/api/sessions'}');
+            const json = await res.json();
+            const data = json.data || json;
+            count = data.active || data.length || 0;
+          } else {
+            const res = await fetch('/api/servers/' + serverId + '/stats');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            count = data.openclaw?.sessions?.active || data.openclaw?.sessions?.recent24h || 0;
+          }
+          document.getElementById('${props.id}-count').textContent = count;
         } catch (e) {
           document.getElementById('${props.id}-count').textContent = '—';
         }
@@ -3634,32 +3741,34 @@ const WIDGETS = {
         </div>
       </div>`,
     generateJs: (props) => `
-      // World Clock Widget: ${props.id} (uses wttr.in for timezone data)
+      // World Clock Widget: ${props.id} (pure Intl.DateTimeFormat - no API needed)
+      const CITY_TZ_MAP = {
+        'New York': 'America/New_York', 'Los Angeles': 'America/Los_Angeles', 'Chicago': 'America/Chicago',
+        'London': 'Europe/London', 'Paris': 'Europe/Paris', 'Berlin': 'Europe/Berlin',
+        'Tokyo': 'Asia/Tokyo', 'Sydney': 'Australia/Sydney', 'Dubai': 'Asia/Dubai',
+        'Singapore': 'Asia/Singapore', 'Hong Kong': 'Asia/Hong_Kong', 'Mumbai': 'Asia/Kolkata',
+        'Shanghai': 'Asia/Shanghai', 'Seoul': 'Asia/Seoul', 'Moscow': 'Europe/Moscow',
+        'Istanbul': 'Europe/Istanbul', 'Bangkok': 'Asia/Bangkok', 'Toronto': 'America/Toronto',
+        'Heidenheim': 'Europe/Berlin', 'Vienna': 'Europe/Vienna', 'Zurich': 'Europe/Zurich',
+        'Amsterdam': 'Europe/Amsterdam', 'Rome': 'Europe/Rome', 'Madrid': 'Europe/Madrid',
+        'São Paulo': 'America/Sao_Paulo', 'Mexico City': 'America/Mexico_City',
+        'Graz': 'Europe/Vienna', 'Munich': 'Europe/Berlin', 'Frankfurt': 'Europe/Berlin',
+        'Santiago': 'America/Santiago', 'Lima': 'America/Lima'
+      };
       const locs_${props.id.replace(/-/g, '_')} = '${props.locations || 'New York; London; Tokyo'}'.split(';').map(s => s.trim());
       const hour12_${props.id.replace(/-/g, '_')} = ${!props.format24h};
       
-      async function update_${props.id.replace(/-/g, '_')}() {
+      function update_${props.id.replace(/-/g, '_')}() {
         const container = document.getElementById('${props.id}-clocks');
-        const results = await Promise.all(locs_${props.id.replace(/-/g, '_')}.map(async (loc) => {
+        const now = new Date();
+        const results = locs_${props.id.replace(/-/g, '_')}.map(loc => {
+          const tz = CITY_TZ_MAP[loc] || CITY_TZ_MAP[Object.keys(CITY_TZ_MAP).find(k => k.toLowerCase() === loc.toLowerCase())] || null;
+          if (!tz) return { city: loc, time: '(unknown tz)' };
           try {
-            const res = await fetch('https://wttr.in/' + encodeURIComponent(loc) + '?format=j1');
-            const data = await res.json();
-            const area = data.nearest_area[0];
-            const city = area.areaName[0].value;
-            const localTime = data.current_condition[0].localObsDateTime;
-            // Parse the time from format "2026-02-07 12:30 AM"
-            const timePart = localTime.split(' ').slice(1).join(' ');
-            let displayTime = timePart;
-            if (!hour12_${props.id.replace(/-/g, '_')}) {
-              // Convert to 24h if needed
-              const d = new Date('2000-01-01 ' + timePart);
-              displayTime = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-            }
-            return { city, time: displayTime, ok: true };
-          } catch (e) {
-            return { city: loc, time: '—', ok: false };
-          }
-        }));
+            const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: hour12_${props.id.replace(/-/g, '_')} });
+            return { city: loc, time: fmt.format(now) };
+          } catch(e) { return { city: loc, time: '—' }; }
+        });
         container.innerHTML = results.map(r => 
           '<div class="tz-row"><span class="tz-city">' + r.city + '</span><span class="tz-time">' + r.time + '</span></div>'
         ).join('');
@@ -3729,6 +3838,99 @@ const WIDGETS = {
       }
       update_${props.id.replace(/-/g, '_')}();
       setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 60) * 1000});
+    `
+  },
+
+  'claude-usage': {
+    name: 'Claude Usage',
+    icon: '🤖',
+    category: 'large',
+    description: 'Real-time Claude Code subscription usage (5h session, 7d weekly, Opus, Sonnet limits). Reads credentials from ~/.claude.',
+    defaultWidth: 380,
+    defaultHeight: 260,
+    hasApiKey: false,
+    properties: {
+      title: 'Claude Usage',
+      refreshInterval: 120
+    },
+    preview: `<div style="padding:8px;font-size:11px;">
+      <div style="margin-bottom:6px;"><b>5h Session</b> <span style="color:#3fb950;">28%</span></div>
+      <div style="margin-bottom:6px;"><b>7d Weekly</b> <span style="color:#d29922;">31%</span></div>
+      <div><b>Sonnet</b> <span style="color:#3fb950;">0%</span></div>
+    </div>`,
+    generateHtml: (props) => `
+      <div class="dash-card" id="widget-${props.id}" style="height:100%;">
+        <div class="dash-card-head">
+          <span class="dash-card-title">${renderIcon('claude-usage')} ${props.title || 'Claude Usage'}</span>
+          <span id="${props.id}-sub" style="font-size:calc(10px * var(--font-scale,1));color:#8b949e;margin-left:auto;"></span>
+        </div>
+        <div class="dash-card-body" id="${props.id}-body" style="padding:8px 12px;overflow-y:auto;">
+          <div style="color:#8b949e;text-align:center;">Loading...</div>
+        </div>
+      </div>`,
+    generateJs: (props) => `
+      function barColor_${props.id.replace(/-/g, '_')}(pct) {
+        if (pct >= 80) return '#f85149';
+        if (pct >= 50) return '#d29922';
+        return '#3fb950';
+      }
+      function timeLeft_${props.id.replace(/-/g, '_')}(iso) {
+        if (!iso) return '';
+        const ms = new Date(iso) - Date.now();
+        if (ms <= 0) return 'now';
+        const h = Math.floor(ms / 3600000);
+        const m = Math.floor((ms % 3600000) / 60000);
+        return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+      }
+      function usageBar_${props.id.replace(/-/g, '_')}(label, pct, resetIso) {
+        const p = Math.min(100, Math.max(0, pct || 0));
+        const c = barColor_${props.id.replace(/-/g, '_')}(p);
+        const reset = resetIso ? '<span style="color:#8b949e;font-size:calc(10px * var(--font-scale,1));">resets ' + timeLeft_${props.id.replace(/-/g, '_')}(resetIso) + '</span>' : '';
+        return '<div style="margin-bottom:10px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">' +
+            '<span style="font-weight:600;font-size:calc(12px * var(--font-scale,1));">' + label + '</span>' +
+            '<span style="font-size:calc(13px * var(--font-scale,1));font-weight:700;color:' + c + ';">' + p.toFixed(0) + '%</span>' +
+          '</div>' +
+          '<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden;">' +
+            '<div style="width:' + p + '%;height:100%;background:' + c + ';border-radius:4px;transition:width .5s;"></div>' +
+          '</div>' +
+          (reset ? '<div style="text-align:right;margin-top:2px;">' + reset + '</div>' : '') +
+        '</div>';
+      }
+      async function update_${props.id.replace(/-/g, '_')}() {
+        const body = document.getElementById('${props.id}-body');
+        const subEl = document.getElementById('${props.id}-sub');
+        try {
+          const res = await fetch('/api/pages/claude-usage/usage');
+          const d = await res.json();
+          if (d.error) { body.innerHTML = '<div style="color:#f85149;">' + d.error + '</div>'; return; }
+          if (subEl) {
+            const labels = { max: 'Max (5×)', pro: 'Pro', free: 'Free' };
+            subEl.textContent = labels[d.subscription] || d.subscription || '';
+          }
+          let html = '';
+          if (d.five_hour) html += usageBar_${props.id.replace(/-/g, '_')}('5h Session', d.five_hour.utilization, d.five_hour.resets_at);
+          if (d.seven_day) html += usageBar_${props.id.replace(/-/g, '_')}('7d Weekly', d.seven_day.utilization, d.seven_day.resets_at);
+          if (d.seven_day_opus) html += usageBar_${props.id.replace(/-/g, '_')}('Opus (7d)', d.seven_day_opus.utilization, d.seven_day_opus.resets_at);
+          if (d.seven_day_sonnet && d.seven_day_sonnet.utilization > 0) html += usageBar_${props.id.replace(/-/g, '_')}('Sonnet (7d)', d.seven_day_sonnet.utilization, d.seven_day_sonnet.resets_at);
+          if (d.extra_usage && d.extra_usage.is_enabled) {
+            const used = (d.extra_usage.used_credits / 100).toFixed(2);
+            const limit = d.extra_usage.monthly_limit > 0 ? (d.extra_usage.monthly_limit / 100).toFixed(2) : '∞';
+            html += '<div style="margin-top:4px;padding-top:6px;border-top:1px solid #30363d;">' +
+              '<div style="display:flex;justify-content:space-between;font-size:calc(11px * var(--font-scale,1));">' +
+                '<span style="color:#8b949e;">Extra Usage</span>' +
+                '<span style="font-weight:600;">$' + used + ' / $' + limit + '</span>' +
+              '</div></div>';
+          }
+          if (!html) html = '<div style="color:#8b949e;">No usage data</div>';
+          body.innerHTML = html;
+        } catch (e) {
+          console.error('Claude usage widget error:', e);
+          body.innerHTML = '<div style="color:#f85149;">Failed to load</div>';
+        }
+      }
+      update_${props.id.replace(/-/g, '_')}();
+      setInterval(update_${props.id.replace(/-/g, '_')}, ${(props.refreshInterval || 120) * 1000});
     `
   },
 

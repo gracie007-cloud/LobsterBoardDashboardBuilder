@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.8.0] - 2026-03-24
+
+### Added
+- **Claude Usage widget** — Real-time Claude Code subscription monitoring with 5-hour session, 7-day weekly, Opus/Sonnet limits, and extra usage tracking — thanks @JamesTsetsekas!
+- **Claude Usage standalone page** — Full-page dashboard for detailed usage analysis at `/pages/claude-usage/`
+
+### Fixed
+- **OpenClaw version detection** — Widget now correctly parses `openclaw --version` output to fix false "Update available" notifications — thanks @JamesTsetsekas!
+
+### Technical
+- Auto-refreshes expired Claude OAuth tokens via CLI
+- Reads from standard `~/.claude/.credentials.json` location
+- Comprehensive error handling for rate limits and authentication issues
+
+## [0.7.0] - 2026-03-17
+
+### Added
+- **Enhanced Gemini CLI integration** — auto-detect all available Gemini CLI quota buckets (including new 3.x models) instead of hardcoded 2.x allowlist — thanks @mastash3ff!
+- **Auto-refresh OAuth tokens** — Gemini CLI tokens now automatically refresh to survive multi-machine rotation, preventing authentication failures — thanks @mastash3ff!
+
+### Changed
+- **Future-proof model support** — Gemini CLI collector now automatically surfaces new quota windows when Google adds them
+
 ## [0.3.1] - 2026-02-28
 
 ### Fixed

@@ -652,7 +652,7 @@ async function loadServersList() {
       <div class="server-item" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-tertiary);border-radius:6px;margin-bottom:8px;">
         <div>
           <strong style="font-size:13px;">${_escHtml(s.name)}</strong>
-          ${s.type === 'local' ? '<span style="color:#8b949e;font-size:11px;margin-left:8px;">(built-in)</span>' : `<span style="color:#8b949e;font-size:11px;margin-left:8px;">${_escHtml(s.url || '')}</span>`}
+          ${s.type === 'local' ? '<span style="color:#8b949e;font-size:11px;margin-left:8px;">(built-in)</span>' : `<span style="color:#8b949e;font-size:11px;margin-left:8px;">${_escHtml(s.url || '')} ${s.encrypted ? '🔐' : ''}</span>`}
         </div>
         <div style="display:flex;gap:6px;">
           ${s.type !== 'local' ? `
@@ -718,7 +718,8 @@ async function testServerConnection() {
     });
     if (res.ok) {
       const data = await res.json();
-      resultEl.innerHTML = `<span style="color:#3fb950;">✓ Connected to ${_escHtml(data.serverName || 'server')}</span>`;
+      const encStatus = data.encrypted ? ' 🔐' : ' ⚠️ unencrypted';
+      resultEl.innerHTML = `<span style="color:#3fb950;">✓ Connected to ${_escHtml(data.serverName || 'server')}${encStatus}</span>`;
     } else {
       resultEl.innerHTML = `<span style="color:#f85149;">HTTP ${res.status}</span>`;
     }
@@ -732,7 +733,8 @@ async function testServer(id) {
     const res = await fetch(`/api/servers/${id}/test`, { method: 'POST' });
     const data = await res.json();
     if (data.status === 'ok') {
-      alert(`✓ Connected to ${data.serverName || 'server'}`);
+      const encStatus = data.localEncryption ? '🔐 Encrypted' : '⚠️ Not encrypted';
+      alert(`✓ Connected to ${data.serverName || 'server'}\n${encStatus}`);
     } else {
       alert(`Connection failed: ${data.message || 'Unknown error'}`);
     }
@@ -1546,8 +1548,8 @@ function showProperties(widget) {
     document.getElementById('prop-endpoint').value = widget.properties.endpoint || '';
   }
 
-  // Show server dropdown for system widgets
-  const systemWidgets = ['uptime-monitor', 'docker-containers', 'disk-usage', 'network-speed', 'cpu-memory'];
+  // Show server dropdown for system/remote widgets
+  const systemWidgets = ['uptime-monitor', 'docker-containers', 'disk-usage', 'network-speed', 'cpu-memory', 'ai-usage', 'openclaw-release', 'auth-status', 'cron-jobs', 'system-log', 'session-count', 'activity-list'];
   const serverGroup = document.getElementById('prop-server-group');
   if (serverGroup && systemWidgets.includes(widget.type)) {
     serverGroup.style.display = 'block';
