@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0] - 2026-03-24
+
+### Added
+- **Claude Usage widget** — Real-time Claude Code subscription monitoring with 5-hour session, 7-day weekly, Opus/Sonnet limits, and extra usage tracking — thanks @JamesTsetsekas!
+- **Claude Usage standalone page** — Full-page dashboard for detailed usage analysis at `/pages/claude-usage/`
+
+### Fixed
+- **OpenClaw version detection** — Widget now correctly parses `openclaw --version` output to fix false "Update available" notifications — thanks @JamesTsetsekas!
+
+### Technical
+- Auto-refreshes expired Claude OAuth tokens via CLI
+- Reads from standard `~/.claude/.credentials.json` location
+- Comprehensive error handling for rate limits and authentication issues
+
 ## [0.7.0] - 2026-03-17
 
 ### Added
